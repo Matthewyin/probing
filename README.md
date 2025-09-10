@@ -10,8 +10,9 @@
 # 1. 安装uv包管理器
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# 2. 安装项目依赖
-cd network-diagnosis
+# 2. 克隆项目并安装依赖
+git clone https://github.com/Matthewyin/probing.git
+cd probing
 uv sync
 
 # 3. 运行第一个诊断
@@ -29,7 +30,7 @@ uv run python main.py httpbin.org --port 80
 
 # 批量诊断多个目标
 uv run python batch_main.py --create-sample  # 创建配置文件
-uv run python batch_main.py -c targets.yaml  # 执行批量诊断
+uv run python batch_main.py -c network-diagnosis/input/targets.yaml  # 执行批量诊断
 ```
 
 ## ✨ 核心功能
@@ -51,6 +52,34 @@ uv run python batch_main.py -c targets.yaml  # 执行批量诊断
 - **网络权限**: 能够访问目标网络地址
 - **可选工具**: mtr (用于高级网络路径追踪)
 
+## 📁 项目结构
+
+```text
+probing/
+├── .env                    # 环境变量配置（需要创建）
+├── .env.example           # 环境变量模板
+├── .python-version        # Python版本文件
+├── pyproject.toml         # uv项目配置
+├── uv.lock               # 依赖锁定文件
+├── main.py               # 单目标诊断主程序
+├── batch_main.py         # 批量诊断主程序
+├── README.md             # 项目说明
+└── network-diagnosis/    # 网络诊断工具目录
+    ├── src/             # 源代码
+    │   └── network_diagnosis/
+    │       ├── config.py
+    │       ├── models.py
+    │       ├── services.py
+    │       ├── diagnosis.py
+    │       ├── batch_runner.py
+    │       ├── config_loader.py
+    │       └── logger.py
+    ├── doc/             # 文档目录
+    ├── input/           # 配置文件目录
+    ├── output/          # 输出结果目录
+    └── log/             # 日志目录
+```
+
 ### 配置文件示例
 
 ```yaml
@@ -58,7 +87,7 @@ targets:
   - domain: "google.com"
     port: 443
     description: "Google搜索引擎"
-    
+
   - domain: "httpbin.org"
     port: 80
     description: "HTTP测试服务"
@@ -96,7 +125,7 @@ global_settings:
 
 ### 批量诊断摘要
 
-```
+```text
 ================================================================================
 批量网络诊断结果摘要
 ================================================================================
@@ -119,12 +148,19 @@ global_settings:
 
 | 文档 | 描述 |
 |------|------|
-| [用户手册](USER_MANUAL.md) | 详细的使用指南和最佳实践 |
-| [配置指南](CONFIG_USAGE.md) | 配置文件编写和参数说明 |
-| [架构文档](ARCHITECTURE.md) | 技术架构和设计原理 |
-| [项目总结](PROJECT_SUMMARY.md) | 功能概述和实现总结 |
+| [用户手册](network-diagnosis/doc/USER_MANUAL.md) | 详细的使用指南和最佳实践 |
+| [架构文档](network-diagnosis/doc/ARCHITECTURE.md) | 技术架构和设计原理 |
+| [功能实现文档](network-diagnosis/doc/) | 各功能模块的详细实现文档 |
+
+## 🔧 环境配置
+
+复制环境变量模板并根据需要修改：
+
+```bash
+cp .env.example .env
+# 编辑 .env 文件设置你的配置
+```
 
 ## 📄 许可证
 
 本项目采用 MIT 许可证 - 查看 [LICENSE](LICENSE) 文件了解详情。
-

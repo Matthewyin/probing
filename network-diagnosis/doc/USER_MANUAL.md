@@ -68,10 +68,9 @@ uv --version
 #### 2. 获取项目代码
 
 ```bash
-# 克隆或下载项目到本地
-cd /path/to/your/workspace
-# 假设项目已经在 network-diagnosis 目录中
-cd network-diagnosis
+# 克隆项目到本地
+git clone https://github.com/Matthewyin/probing.git
+cd probing
 ```
 
 #### 3. 安装项目依赖
@@ -89,7 +88,7 @@ uv add pydantic-settings httpx cryptography python-dotenv pyyaml
 创建环境配置文件：
 
 ```bash
-# 复制环境变量模板
+# 复制环境变量模板（在项目根目录）
 cp .env.example .env
 
 # 编辑配置文件
@@ -247,10 +246,10 @@ uv run python main.py 192.168.1.1 --port 80 --no-trace
 
 ### 输出文件
 
-每次诊断会在 `output/` 目录下生成一个JSON文件：
+每次诊断会在 `network-diagnosis/output/` 目录下生成一个JSON文件：
 
 ```
-output/network_diagnosis_github.com_20250910_120000.json
+network-diagnosis/output/network_diagnosis_github.com_20250910_120000.json
 ```
 
 文件命名格式：`network_diagnosis_{domain}_{timestamp}.json`
@@ -337,7 +336,7 @@ global_settings:
 
 ```bash
 # 验证配置文件格式
-uv run python batch_main.py --validate -c targets.yaml
+uv run python batch_main.py --validate -c network-diagnosis/input/targets.yaml
 
 # 输出示例：
 # 2025-09-10 12:00:00 - INFO - Loading configuration from targets.yaml
@@ -348,17 +347,17 @@ uv run python batch_main.py --validate -c targets.yaml
 #### 2. 执行批量诊断
 
 ```bash
-# 使用默认配置文件 targets.yaml
+# 使用默认配置文件 network-diagnosis/input/targets.yaml
 uv run python batch_main.py
 
 # 使用自定义配置文件
-uv run python batch_main.py -c my_targets.yaml
+uv run python batch_main.py -c network-diagnosis/input/my_targets.yaml
 
 # 静默模式（只显示错误）
-uv run python batch_main.py --quiet -c targets.yaml
+uv run python batch_main.py --quiet -c network-diagnosis/input/targets.yaml
 
 # 不显示详细摘要
-uv run python batch_main.py --no-summary -c targets.yaml
+uv run python batch_main.py --no-summary -c network-diagnosis/input/targets.yaml
 ```
 
 #### 3. 批量诊断命令参数
@@ -462,16 +461,24 @@ global_settings:
 
 #### 目录结构
 ```
-output/
-├── test_nssa_io/                    # 基于 test_nssa_io.yaml
-│   ├── network_diagnosis_nssa.io_443_*.json
-│   └── network_diagnosis_nssa.io_80_*.json
-├── targets_simple/                 # 基于 targets_simple.yaml
-│   ├── network_diagnosis_google.com_443_*.json
-│   ├── network_diagnosis_github.com_443_*.json
-│   └── network_diagnosis_httpbin.org_80_*.json
-└── production_targets/             # 基于 production_targets.yaml
-    └── ...
+network-diagnosis/
+├── output/
+│   ├── test_nssa_io/                    # 基于 test_nssa_io.yaml
+│   │   ├── network_diagnosis_nssa.io_443_*.json
+│   │   └── network_diagnosis_nssa.io_80_*.json
+│   ├── targets_simple/                 # 基于 targets_simple.yaml
+│   │   ├── network_diagnosis_google.com_443_*.json
+│   │   ├── network_diagnosis_github.com_443_*.json
+│   │   └── network_diagnosis_httpbin.org_80_*.json
+│   └── production_targets/             # 基于 production_targets.yaml
+│       └── ...
+└── log/
+    ├── test_nssa_io/
+    │   └── diagnosis_*.log
+    ├── targets_simple/
+    │   └── diagnosis_*.log
+    └── production_targets/
+        └── diagnosis_*.log
 ```
 
 #### 文件类型

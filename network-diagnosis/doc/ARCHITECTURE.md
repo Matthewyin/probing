@@ -13,9 +13,9 @@ graph TB
     end
     
     subgraph "应用层"
-        Main[main.py]
-        BatchMain[batch_main.py]
-        Example[example_usage.py]
+        Main[main.py - 根目录]
+        BatchMain[batch_main.py - 根目录]
+        API[编程接口]
     end
     
     subgraph "业务逻辑层"
@@ -45,7 +45,7 @@ graph TB
     
     CLI --> Main
     BatchCLI --> BatchMain
-    API --> Example
+    API --> API
     
     Main --> Coordinator
     BatchMain --> BatchRunner
@@ -104,7 +104,8 @@ sequenceDiagram
 
 ### 2.1 应用入口层
 
-#### main.py - 单目标诊断入口
+#### main.py - 单目标诊断入口（项目根目录）
+
 ```python
 # 主要功能
 - 命令行参数解析
@@ -114,9 +115,13 @@ sequenceDiagram
 
 # 核心接口
 async def main() -> int
+
+# 文件位置：/probing/main.py
+# 运行方式：uv run python main.py <domain>
 ```
 
-#### batch_main.py - 批量诊断入口
+#### batch_main.py - 批量诊断入口（项目根目录）
+
 ```python
 # 主要功能
 - 配置文件验证
@@ -126,6 +131,9 @@ async def main() -> int
 
 # 核心接口
 async def main() -> int
+
+# 文件位置：/probing/batch_main.py
+# 运行方式：uv run python batch_main.py -c network-diagnosis/input/config.yaml
 ```
 
 ### 2.2 业务协调层
@@ -233,23 +241,22 @@ class NetworkPathService:
 
 ```mermaid
 graph TD
-    subgraph "应用层"
+    subgraph "应用层 (项目根目录)"
         A[main.py]
         B[batch_main.py]
-        C[example_usage.py]
     end
 
-    subgraph "业务层"
+    subgraph "业务层 (network-diagnosis/src/network_diagnosis/)"
         D[diagnosis.py]
         E[batch_runner.py]
         F[config_loader.py]
     end
 
-    subgraph "服务层"
+    subgraph "服务层 (network-diagnosis/src/network_diagnosis/)"
         G[services.py]
     end
 
-    subgraph "数据层"
+    subgraph "数据层 (network-diagnosis/src/network_diagnosis/)"
         H[models.py]
         I[logger.py]
         J[config.py]
@@ -258,7 +265,6 @@ graph TD
     A --> D
     B --> E
     B --> F
-    C --> D
 
     D --> G
     E --> D
@@ -381,13 +387,14 @@ flowchart TD
 ```
 
 #### 配置类结构
+
 ```python
 class AppSettings(BaseSettings):
-    """应用配置类"""
+    """应用配置类 - 位于 network-diagnosis/src/network_diagnosis/config.py"""
 
     # 配置来源优先级
     model_config = SettingsConfigDict(
-        env_file='.env',           # 1. .env文件
+        env_file='.env',           # 1. 项目根目录的.env文件
         env_file_encoding='utf-8',
         case_sensitive=True,
         extra='ignore'
@@ -406,11 +413,16 @@ class AppSettings(BaseSettings):
 
     # 系统配置
     SUDO_PASSWORD: Optional[str] = None
-    OUTPUT_DIR: str = "./output"
+    OUTPUT_DIR: str = "./network-diagnosis/output"  # 动态计算路径
 
     # 日志配置
     LOG_LEVEL: str = "INFO"
     LOG_FORMAT: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        # 动态计算输出目录路径
+        self.OUTPUT_DIR = str(Path(__file__).parent.parent.parent / "output")
 ```
 
 ### 4.2 YAML配置文件处理机制
