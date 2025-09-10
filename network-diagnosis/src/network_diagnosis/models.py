@@ -81,6 +81,13 @@ class TraceRouteHop(BaseModel):
     avg_response_time_ms: Optional[float] = None
     packet_loss_percent: float = 0.0
 
+    # mtr增强字段
+    asn: Optional[str] = Field(None, description="自治系统号")
+    packets_sent: Optional[int] = Field(None, description="发送的数据包数量")
+    best_time_ms: Optional[float] = Field(None, description="最佳响应时间")
+    worst_time_ms: Optional[float] = Field(None, description="最差响应时间")
+    std_dev_ms: Optional[float] = Field(None, description="响应时间标准差")
+
 
 class NetworkPathInfo(BaseModel):
     """网络路径信息"""

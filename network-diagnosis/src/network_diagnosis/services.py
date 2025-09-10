@@ -366,7 +366,7 @@ class NetworkPathService:
         """使用mtr进行路径追踪"""
         try:
             # 构建mtr命令
-            cmd = ['sudo', '-S', 'mtr', '-r', '-f', '3', '-w', '-n', '-c', '3', '--json', host]
+            cmd = ['sudo', '-S', 'mtr', '-rwc', '5', '-f', '3', '-n', '-i', '5', '-4', '-z', '--json', host]
 
             # 执行命令
             process = await asyncio.create_subprocess_exec(
@@ -422,24 +422,53 @@ class NetworkPathService:
     def _parse_mtr_output(self, mtr_data: Dict[str, Any], host: str) -> NetworkPathInfo:
         """解析mtr JSON输出"""
         hops = []
+        target_ip = None
 
         for hop_data in mtr_data.get('report', {}).get('hubs', []):
+            # 跳过无响应的跳点（host为"???"）
+            if hop_data.get('host') == '???':
+                continue
+
+            # 收集响应时间数据（包含更详细的统计）
+            response_times = []
+            if hop_data.get('Best', 0) > 0:
+                response_times.append(hop_data.get('Best', 0.0))
+            if hop_data.get('Avg', 0) > 0:
+                response_times.append(hop_data.get('Avg', 0.0))
+            if hop_data.get('Wrst', 0) > 0:
+                response_times.append(hop_data.get('Wrst', 0.0))
+
+            # 如果没有有效的响应时间，使用平均值
+            if not response_times:
+                response_times = [hop_data.get('Avg', 0.0)]
+
             hop = TraceRouteHop(
                 hop_number=hop_data.get('count', 0),
                 ip_address=hop_data.get('host'),
-                response_times_ms=[hop_data.get('Avg', 0.0)],
+                response_times_ms=response_times,
                 avg_response_time_ms=hop_data.get('Avg', 0.0),
-                packet_loss_percent=hop_data.get('Loss%', 0.0)
+                packet_loss_percent=hop_data.get('Loss%', 0.0),
+                # 新增字段
+                asn=hop_data.get('ASN'),
+                packets_sent=hop_data.get('Snt', 0),
+                best_time_ms=hop_data.get('Best', 0.0),
+                worst_time_ms=hop_data.get('Wrst', 0.0),
+                std_dev_ms=hop_data.get('StDev', 0.0)
             )
             hops.append(hop)
 
-        # 计算总体统计
-        avg_latency = sum(hop.avg_response_time_ms or 0 for hop in hops) / len(hops) if hops else None
+            # 最后一跳通常是目标IP
+            if hop_data.get('Loss%', 100) < 100:  # 有响应的跳点
+                target_ip = hop_data.get('host')
+
+        # 计算总体统计（只计算有响应的跳点）
+        valid_hops = [hop for hop in hops if hop.avg_response_time_ms > 0]
+        avg_latency = sum(hop.avg_response_time_ms for hop in valid_hops) / len(valid_hops) if valid_hops else None
         total_loss = sum(hop.packet_loss_percent for hop in hops) / len(hops) if hops else 0
 
         return NetworkPathInfo(
             target_host=host,
-            target_ip=mtr_data.get('report', {}).get('dst'),
+            target_ip=target_ip,  # 使用最后一个有响应的跳点作为目标IP
             trace_method="mtr",
             hops=hops,
             total_hops=len(hops),
