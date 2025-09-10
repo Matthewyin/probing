@@ -1,3 +1,6 @@
+# Augment AI assistant files
+.augment/
+
 # Environment variables and secrets
 .env
 .env.local
