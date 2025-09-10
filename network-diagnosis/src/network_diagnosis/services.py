@@ -353,11 +353,10 @@ class NetworkPathService:
         """执行网络路径追踪"""
         logger.info(f"Starting network path trace to {host}")
 
-        # 首先尝试使用mtr
-        if settings.SUDO_PASSWORD:
-            result = await self._trace_with_mtr(host)
-            if result:
-                return result
+        # 首先尝试使用mtr（无需密码，通过sudoers配置）
+        result = await self._trace_with_mtr(host)
+        if result:
+            return result
 
         # 如果mtr失败或不可用，使用traceroute
         return await self._trace_with_traceroute(host)
@@ -365,28 +364,39 @@ class NetworkPathService:
     async def _trace_with_mtr(self, host: str) -> Optional[NetworkPathInfo]:
         """使用mtr进行路径追踪"""
         try:
-            # 构建mtr命令
-            cmd = ['sudo', '-S', 'mtr', '-rwc', '5', '-f', '3', '-n', '-i', '5', '-4', '-z', '--json', host]
+            # 构建mtr命令 - 使用完整路径
+            cmd = ['sudo', 'mtr', '-rwc', '5', '-f', '3', '-n', '-i', '1', '-4', '-z', '--json', host]
+            logger.info(f"Executing mtr command: {' '.join(cmd)}")
 
             # 执行命令
             process = await asyncio.create_subprocess_exec(
                 *cmd,
-                stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
 
-            # 提供sudo密码
-            stdout, stderr = await process.communicate(
-                input=f"{settings.SUDO_PASSWORD}\n".encode()
-            )
+            # 等待命令完成（无需密码输入），设置超时
+            try:
+                stdout, stderr = await asyncio.wait_for(
+                    process.communicate(),
+                    timeout=30.0
+                )
+            except asyncio.TimeoutError:
+                logger.warning(f"mtr command timed out for {host}")
+                process.kill()
+                return None
+
+            logger.info(f"mtr command completed with return code: {process.returncode}")
 
             if process.returncode == 0:
                 # 解析mtr JSON输出
-                mtr_data = json.loads(stdout.decode())
+                stdout_str = stdout.decode()
+                logger.debug(f"mtr output length: {len(stdout_str)} characters")
+                mtr_data = json.loads(stdout_str)
                 return self._parse_mtr_output(mtr_data, host)
             else:
-                logger.warning(f"mtr failed: {stderr.decode()}")
+                stderr_str = stderr.decode()
+                logger.warning(f"mtr failed with return code {process.returncode}: {stderr_str}")
                 return None
 
         except Exception as e:

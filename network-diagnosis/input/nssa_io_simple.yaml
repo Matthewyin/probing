@@ -23,7 +23,7 @@ global_settings:
   
   # 执行设置
   max_concurrent: 2  # 2个目标，使用2个并发
-  timeout_seconds: 60  # 30秒超时
+  timeout_seconds: 120  # 120秒超时
   
   # 报告设置
   include_performance_analysis: true
