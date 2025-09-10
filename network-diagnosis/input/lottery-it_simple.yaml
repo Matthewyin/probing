@@ -8,7 +8,15 @@ targets:
     include_trace: true
     include_http: false
     include_tls: false
-    description: "bos.lottery.cn	 HTTPS连接测试"
+    description: "g3jstls.lottery-it.com	 HTTPS连接测试"
+
+
+  - domain: "nssa.io"
+    port: 443
+    include_trace: true
+    include_http: true
+    include_tls: true
+    description: "nssa.io HTTPS连接测试"
   
 # 全局配置
 global_settings:
