@@ -3,6 +3,7 @@
 使用Pydantic Settings进行类型安全的配置管理
 """
 import os
+from pathlib import Path
 from typing import Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -29,7 +30,7 @@ class AppSettings(BaseSettings):
     
     # 系统配置
     SUDO_PASSWORD: Optional[str] = None  # sudo密码，用于mtr命令
-    OUTPUT_DIR: str = "./output"         # 输出目录
+    OUTPUT_DIR: str = "./output"  # 输出目录（将在__init__中重新计算）
     
     # 日志配置
     LOG_LEVEL: str = "INFO"
@@ -37,6 +38,8 @@ class AppSettings(BaseSettings):
     
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+        # 重新计算输出目录路径
+        self.OUTPUT_DIR = str(Path(__file__).parent.parent.parent / "output")
         self._validate_config()
         self._ensure_output_dir()
     

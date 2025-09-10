@@ -16,6 +16,7 @@ global_settings:
   default_port: 443
   default_include_trace: false
   default_include_http: true
+  default_include_tls: true
   
   # 输出设置
   save_individual_files: true

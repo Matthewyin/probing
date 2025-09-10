@@ -6,7 +6,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
-from config import settings
+from .config import settings
 
 
 def setup_logging():
@@ -45,8 +45,13 @@ def setup_config_logging(config_name: str) -> str:
     # 生成时间戳
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-    # 创建日志目录
-    log_dir = Path("log") / config_name
+    # 创建日志目录 - 从当前文件位置计算
+    # __file__ 是 .../network-diagnosis/src/network_diagnosis/logger.py
+    # parent.parent 是 .../network-diagnosis/src
+    # parent.parent.parent 是 .../network-diagnosis
+    # 然后进入 log 目录
+    network_diagnosis_dir = Path(__file__).parent.parent.parent
+    log_dir = network_diagnosis_dir / "log" / config_name
     log_dir.mkdir(parents=True, exist_ok=True)
 
     # 生成日志文件名

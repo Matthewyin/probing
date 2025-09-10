@@ -13,7 +13,7 @@ from .diagnosis import DiagnosisRunner
 from .models import NetworkDiagnosisResult, DiagnosisRequest, PublicIPInfo
 from .logger import get_logger, setup_config_logging
 from .services import PublicIPService
-from config import settings
+from .config import settings
 
 logger = get_logger(__name__)
 

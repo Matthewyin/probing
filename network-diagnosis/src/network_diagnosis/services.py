@@ -22,7 +22,7 @@ from .models import (
     NetworkDiagnosisResult, DiagnosisRequest, PublicIPInfo
 )
 from .logger import get_logger
-from config import settings
+from .config import settings
 
 logger = get_logger(__name__)
 

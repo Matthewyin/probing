@@ -8,11 +8,11 @@ import sys
 from pathlib import Path
 
 # 添加src目录到Python路径
-sys.path.insert(0, str(Path(__file__).parent / "src"))
+sys.path.insert(0, str(Path(__file__).parent / "network-diagnosis" / "src"))
 
 from network_diagnosis.diagnosis import DiagnosisRunner
 from network_diagnosis.logger import get_logger
-from config import settings
+from network_diagnosis.config import settings
 
 logger = get_logger(__name__)
 

@@ -27,6 +27,12 @@ venv/
 env/
 ENV/
 
+# UV package manager
+uv.lock
+
+# Python version
+.python-version
+
 # IDE and editor files
 .vscode/
 .idea/
@@ -46,6 +52,10 @@ Thumbs.db
 # Logs
 *.log
 logs/
+
+# Project-specific output directories
+network-diagnosis/output/
+network-diagnosis/log/
 
 # Temporary files
 *.tmp
