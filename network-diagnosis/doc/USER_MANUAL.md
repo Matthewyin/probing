@@ -10,21 +10,25 @@
 6. [常见问题排查](#常见问题排查)
 7. [高级用法](#高级用法)
 8. [性能优化](#性能优化)
+9. [生产环境部署](#生产环境部署)
 
 ## 🎯 工具概述
 
 ### 什么是网络诊断工具？
 
-网络诊断工具是一个专业的网络连接性和性能分析工具，能够对指定的域名或IP地址进行全面的网络诊断，包括TCP连接测试、TLS/SSL安全分析、HTTP响应检查和网络路径追踪。
+网络诊断工具是一个专业的网络连接性和性能分析工具，能够对指定的域名、IP地址或URL进行全面的网络诊断，包括DNS解析、TCP连接测试、TLS/SSL安全分析、HTTP响应检查、网络路径追踪和公网IP信息收集。
 
 ### 主要功能
 
 | 功能模块 | 描述 | 输出信息 |
 |----------|------|----------|
-| **TCP连接测试** | 测试目标主机的TCP连接性能 | 连接时间、连接状态、错误信息 |
+| **DNS解析分析** | 域名解析性能和详情 | 解析时间、IP地址、DNS服务器信息 |
+| **TCP连接测试** | 测试目标主机的TCP连接性能 | 连接时间、本地/远程地址、Socket信息 |
 | **TLS/SSL分析** | 收集TLS握手和证书信息 | 协议版本、加密套件、证书详情、有效期 |
-| **HTTP响应检查** | 分析HTTP请求和响应 | 状态码、响应头、响应时间、重定向链 |
-| **网络路径追踪** | 追踪到目标的网络路径 | 跳点信息、延迟统计、丢包率 |
+| **HTTP响应检查** | 分析HTTP/HTTPS请求和响应 | 状态码、响应头、响应时间、重定向链 |
+| **网络路径追踪** | 追踪到目标的网络路径（mtr/traceroute） | 跳点信息、延迟统计、丢包率、ASN信息 |
+| **公网IP信息** | 收集发起端公网IP地理位置信息 | IP地址、地理位置、ISP信息 |
+| **URL检测** | 支持直接URL诊断 | 自动解析域名和端口，支持HTTP/HTTPS |
 | **批量诊断** | 同时诊断多个目标 | 汇总统计、性能分析、安全评估 |
 
 ### 适用场景
@@ -34,6 +38,8 @@
 - **安全审计**：检查TLS配置和证书状态
 - **服务器监控**：批量监控多个服务器的健康状态
 - **网络基础设施评估**：分析网络路径和性能特征
+- **API接口监控**：监控API服务的可用性和响应时间
+- **CDN性能分析**：分析内容分发网络的性能表现
 
 ## 🛠️ 安装和环境配置
 
@@ -96,9 +102,11 @@ nano .env
 ```
 
 **.env 文件示例:**
+
 ```bash
 # 应用配置
 APP_NAME="Network Diagnosis Tool"
+APP_VERSION="1.0.0"
 DEBUG=false
 
 # 网络配置
@@ -107,12 +115,13 @@ READ_TIMEOUT=30
 MAX_REDIRECTS=5
 
 # 输出配置
-OUTPUT_DIR="./output"
+OUTPUT_DIR="./network-diagnosis/output"
 
 # 日志配置
 LOG_LEVEL="INFO"
+LOG_FORMAT="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 
-# 可选：sudo密码（用于mtr命令）
+# 系统配置（已弃用，现使用sudoers配置）
 # SUDO_PASSWORD="your_password"
 ```
 
@@ -128,28 +137,44 @@ uv run python main.py google.com --no-trace
 
 ### 可选工具安装
 
-#### 安装mtr（推荐）
+#### 安装mtr（强烈推荐）
 
-mtr提供更详细的网络路径追踪信息：
+mtr提供更详细的网络路径追踪信息，包括ASN信息、丢包率统计等：
 
 **Ubuntu/Debian:**
+
 ```bash
 sudo apt-get install mtr-tiny
 ```
 
 **CentOS/RHEL:**
+
 ```bash
 sudo yum install mtr
 ```
 
 **macOS:**
+
 ```bash
 brew install mtr
 ```
 
 **Windows:**
+
 ```bash
 # 使用内置的tracert命令，无需额外安装
+```
+
+#### 配置mtr无密码执行（推荐）
+
+为了避免每次执行mtr时输入密码，建议配置sudoers：
+
+```bash
+# 编辑sudoers文件
+sudo visudo
+
+# 添加以下行（替换为实际用户名）
+username ALL=(ALL) NOPASSWD: /usr/bin/mtr, /opt/homebrew/sbin/mtr
 ```
 
 ## 🎯 单目标诊断
@@ -237,22 +262,58 @@ uv run python main.py 192.168.1.1 --port 80 --no-trace
 
 ### 诊断流程说明
 
-1. **域名解析**：将域名解析为IP地址
-2. **TCP连接测试**：测试到目标的TCP连接
-3. **TLS握手**：如果是HTTPS端口，进行TLS握手
-4. **HTTP请求**：发送HTTP请求并分析响应
-5. **网络路径追踪**：追踪到目标的网络路径
-6. **结果保存**：将诊断结果保存为JSON文件
+1. **公网IP信息收集**：收集发起端的公网IP地理位置信息
+2. **域名解析**：将域名解析为IP地址，记录解析时间
+3. **TCP连接测试**：测试到目标的TCP连接，记录连接时间和Socket信息
+4. **TLS握手**：如果启用TLS且是HTTPS端口，进行TLS握手和证书分析
+5. **HTTP请求**：如果启用HTTP，发送HTTP请求并分析响应
+6. **网络路径追踪**：如果启用追踪，使用mtr或traceroute追踪网络路径
+7. **结果保存**：将诊断结果保存为JSON文件
+
+### 新增功能特性
+
+#### URL检测支持
+
+工具现在支持直接使用URL进行诊断：
+
+```bash
+# 使用URL进行诊断（自动解析域名和端口）
+uv run python main.py https://github.com/user/repo
+uv run python main.py http://api.example.com:8080/health
+```
+
+#### TLS开关控制
+
+可以通过配置文件控制是否进行TLS检测：
+
+```yaml
+targets:
+  - domain: "example.com"
+    port: 443
+    include_tls: true    # 启用TLS检测
+  - domain: "api.example.com"
+    port: 80
+    include_tls: false   # 禁用TLS检测
+```
+
+#### 增强的mtr网络追踪
+
+使用mtr命令进行网络路径追踪，提供更详细的信息：
+
+- ASN（自治系统号）信息
+- 详细的丢包率统计
+- 精确的延迟测量
+- JSON格式输出
 
 ### 输出文件
 
 每次诊断会在 `network-diagnosis/output/` 目录下生成一个JSON文件：
 
-```
-network-diagnosis/output/network_diagnosis_github.com_20250910_120000.json
+```text
+network-diagnosis/output/network_diagnosis_github.com_443_20250910_120000_123.json
 ```
 
-文件命名格式：`network_diagnosis_{domain}_{timestamp}.json`
+文件命名格式：`network_diagnosis_{domain}_{port}_{timestamp}_{random}.json`
 
 ## 📊 批量诊断
 
@@ -274,29 +335,42 @@ uv run python batch_main.py --create-sample
 ```yaml
 # targets.yaml
 targets:
+  # 域名+端口方式
   - domain: "google.com"
     port: 443
     include_trace: false
     include_http: true
+    include_tls: true
     description: "Google搜索引擎"
 
-  - domain: "github.com"
-    port: 443
+  # URL方式（自动解析域名和端口）
+  - url: "https://github.com/user/repo"
     include_trace: false
     include_http: true
+    include_tls: true
     description: "GitHub代码托管平台"
 
+  # HTTP服务（禁用TLS）
   - domain: "httpbin.org"
     port: 80
     include_trace: false
     include_http: true
+    include_tls: false
     description: "HTTP测试服务"
+
+  # API接口测试
+  - url: "http://api.example.com:8080/health"
+    include_trace: false
+    include_http: true
+    include_tls: false
+    description: "API健康检查"
 
 global_settings:
   # 默认设置
   default_port: 443
   default_include_trace: false
   default_include_http: true
+  default_include_tls: true
 
   # 执行设置
   max_concurrent: 3
@@ -304,7 +378,7 @@ global_settings:
 
   # 输出设置
   save_individual_files: true
-  save_summary_report: true
+  save_summary_report: false  # 默认关闭批量汇总报告
 
   # 分析设置
   include_performance_analysis: true
@@ -315,11 +389,15 @@ global_settings:
 
 | 参数 | 类型 | 必需 | 默认值 | 描述 |
 |------|------|------|--------|------|
-| `domain` | string | ✓ | - | 域名或IP地址 |
+| `domain` | string | ✓* | - | 域名或IP地址（与url二选一） |
+| `url` | string | ✓* | - | 完整URL（与domain二选一） |
 | `port` | integer | ✗ | 443 | 目标端口 (1-65535) |
 | `include_trace` | boolean | ✗ | false | 是否执行网络路径追踪 |
 | `include_http` | boolean | ✗ | true | 是否收集HTTP响应信息 |
+| `include_tls` | boolean | ✗ | true | 是否进行TLS检测 |
 | `description` | string | ✗ | null | 目标描述信息 |
+
+*注：`domain` 和 `url` 必须提供其中一个
 
 #### 4. 全局设置参数
 
@@ -328,7 +406,8 @@ global_settings:
 | `max_concurrent` | integer | 3 | 1-10 | 最大并发诊断数 |
 | `timeout_seconds` | integer | 60 | 10-300 | 单个诊断超时时间 |
 | `save_individual_files` | boolean | true | - | 是否保存单个JSON文件 |
-| `save_summary_report` | boolean | true | - | 是否生成汇总报告 |
+| `save_summary_report` | boolean | false | - | 是否生成汇总报告 |
+| `default_include_tls` | boolean | true | - | 默认TLS检测开关 |
 
 ### 批量诊断执行流程
 
@@ -983,6 +1062,239 @@ global_settings:
 
 # 分批处理大量目标
 # 将大配置文件拆分为多个小文件
+```
+
+## 🏭 生产环境部署
+
+### 部署方式选择
+
+#### 1. 直接部署（推荐用于小规模）
+
+**适用场景：** 单机部署，监控目标数量 < 100
+
+```bash
+# 1. 创建专用用户
+sudo useradd -m -s /bin/bash netdiag
+sudo usermod -aG sudo netdiag
+
+# 2. 配置sudoers（无密码执行mtr）
+sudo visudo
+# 添加：netdiag ALL=(ALL) NOPASSWD: /usr/bin/mtr
+
+# 3. 安装依赖
+sudo apt install -y mtr-tiny python3.11 python3.11-venv
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# 4. 部署应用
+git clone https://github.com/Matthewyin/probing.git
+cd probing
+uv sync
+
+# 5. 配置systemd服务
+sudo tee /etc/systemd/system/network-diagnosis.service << EOF
+[Unit]
+Description=Network Diagnosis Service
+After=network.target
+
+[Service]
+Type=simple
+User=netdiag
+WorkingDirectory=/home/netdiag/probing
+ExecStart=/home/netdiag/.local/bin/uv run python batch_main.py -c network-diagnosis/input/production.yaml
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl enable network-diagnosis
+sudo systemctl start network-diagnosis
+```
+
+#### 2. 容器化部署（推荐用于中大规模）
+
+**适用场景：** 多节点部署，需要扩展性和隔离性
+
+```dockerfile
+# Dockerfile
+FROM python:3.11-slim
+
+# 安装系统依赖
+RUN apt-get update && apt-get install -y \
+    mtr-tiny \
+    traceroute \
+    dnsutils \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# 安装uv
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+ENV PATH="/root/.local/bin:$PATH"
+
+# 创建应用目录
+WORKDIR /app
+COPY . .
+
+# 安装Python依赖
+RUN uv sync
+
+# 配置sudoers（容器内安全）
+RUN echo "root ALL=(ALL) NOPASSWD: /usr/bin/mtr" >> /etc/sudoers
+
+# 健康检查
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+  CMD curl -f http://localhost:8080/health || exit 1
+
+# 运行应用
+CMD ["uv", "run", "python", "batch_main.py", "-c", "network-diagnosis/input/production.yaml"]
+```
+
+```yaml
+# docker-compose.yml
+version: '3.8'
+services:
+  network-diagnosis:
+    build: .
+    volumes:
+      - ./network-diagnosis/input:/app/network-diagnosis/input:ro
+      - ./network-diagnosis/output:/app/network-diagnosis/output
+      - ./network-diagnosis/log:/app/network-diagnosis/log
+    environment:
+      - LOG_LEVEL=INFO
+      - MAX_CONCURRENT=5
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+```
+
+### 监控和运维
+
+#### 1. 日志管理
+
+```bash
+# 配置日志轮转
+sudo tee /etc/logrotate.d/network-diagnosis << EOF
+/home/netdiag/probing/network-diagnosis/log/*/*.log {
+    daily
+    rotate 30
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 644 netdiag netdiag
+}
+EOF
+```
+
+#### 2. 性能监控
+
+```bash
+# 监控脚本示例
+#!/bin/bash
+# monitor.sh
+
+LOG_DIR="/home/netdiag/probing/network-diagnosis/log"
+OUTPUT_DIR="/home/netdiag/probing/network-diagnosis/output"
+
+# 检查最近的执行状态
+LATEST_LOG=$(find $LOG_DIR -name "*.log" -type f -printf '%T@ %p\n' | sort -n | tail -1 | cut -d' ' -f2-)
+
+if [ -n "$LATEST_LOG" ]; then
+    # 检查是否有错误
+    ERROR_COUNT=$(grep -c "ERROR" "$LATEST_LOG")
+    SUCCESS_COUNT=$(grep -c "SUCCESS" "$LATEST_LOG")
+
+    echo "最近执行状态: 成功 $SUCCESS_COUNT, 错误 $ERROR_COUNT"
+
+    # 检查磁盘使用
+    DISK_USAGE=$(df -h $OUTPUT_DIR | tail -1 | awk '{print $5}' | sed 's/%//')
+    if [ $DISK_USAGE -gt 80 ]; then
+        echo "警告: 磁盘使用率过高 ($DISK_USAGE%)"
+    fi
+fi
+```
+
+#### 3. 告警配置
+
+```bash
+# 集成到监控系统
+# Prometheus + Grafana 示例配置
+
+# prometheus.yml
+scrape_configs:
+  - job_name: 'network-diagnosis'
+    static_configs:
+      - targets: ['localhost:8080']
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+```
+
+### 扩展性考虑
+
+#### 1. 水平扩展
+
+```yaml
+# kubernetes部署示例
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: network-diagnosis
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: network-diagnosis
+  template:
+    metadata:
+      labels:
+        app: network-diagnosis
+    spec:
+      containers:
+      - name: network-diagnosis
+        image: network-diagnosis:latest
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        volumeMounts:
+        - name: config-volume
+          mountPath: /app/network-diagnosis/input
+        - name: output-volume
+          mountPath: /app/network-diagnosis/output
+      volumes:
+      - name: config-volume
+        configMap:
+          name: diagnosis-config
+      - name: output-volume
+        persistentVolumeClaim:
+          claimName: diagnosis-output-pvc
+```
+
+#### 2. 负载均衡
+
+```bash
+# nginx配置示例
+upstream network_diagnosis {
+    server diagnosis-1:8080;
+    server diagnosis-2:8080;
+    server diagnosis-3:8080;
+}
+
+server {
+    listen 80;
+    location / {
+        proxy_pass http://network_diagnosis;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+}
 ```
 
 ## 🚀 高级用法

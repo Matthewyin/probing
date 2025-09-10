@@ -224,16 +224,34 @@ class HTTPService:
 ```python
 class NetworkPathService:
     """网络路径追踪实现"""
-    
+
     async def trace_path(self, host: str) -> Optional[NetworkPathInfo]:
         # 功能实现
-        - mtr命令执行（优先）
+        - mtr命令执行（优先，使用sudoers无密码配置）
         - traceroute命令备选
-        - JSON输出解析
-        - 跳点信息提取
-    
-    async def _trace_with_mtr(self, host: str) -> Optional[NetworkPathInfo]
+        - JSON输出解析（mtr --json格式）
+        - 跳点信息提取（包含ASN信息）
+        - 超时控制（30秒）
+
+    async def _trace_with_mtr(self, host: str) -> Optional[NetworkPathInfo]:
+        # mtr命令参数：sudo mtr -rwc 5 -f 3 -n -i 1 -4 -z --json
+        # -rwc 5: 报告模式，等待完成，发送5个包
+        # -f 3: 从第3跳开始
+        # -n: 不解析主机名
+        # -i 1: 包间隔1秒
+        # -4: 强制IPv4
+        # -z: 显示ASN信息
+        # --json: JSON格式输出
+
     async def _trace_with_traceroute(self, host: str) -> Optional[NetworkPathInfo]
+
+    def _parse_mtr_output(self, mtr_data: Dict[str, Any], host: str) -> NetworkPathInfo:
+        # 解析mtr JSON输出，提取：
+        # - 跳点IP地址和主机名
+        # - 平均响应时间
+        # - 丢包率
+        # - ASN信息
+        # - 数据包统计
 
 ## 3. 调用关系图
 
@@ -501,15 +519,41 @@ class ConfigLoader:
 classDiagram
     class NetworkDiagnosisResult {
         +str domain
-        +str target_ip
+        +Optional~str~ target_ip
         +datetime timestamp
-        +TCPConnectionInfo tcp_connection
+        +Optional~DNSResolutionInfo~ dns_resolution
+        +Optional~TCPConnectionInfo~ tcp_connection
         +Optional~TLSInfo~ tls_info
-        +Optional~HTTPResponseInfo~ http_info
+        +Optional~HTTPResponseInfo~ http_response
         +Optional~NetworkPathInfo~ network_path
+        +Optional~PublicIPInfo~ public_ip_info
+        +float total_diagnosis_time_ms
         +bool success
-        +float total_time_ms
+        +List~str~ error_messages
+    }
+
+    class DNSResolutionInfo {
+        +str domain
+        +List~str~ ip_addresses
+        +str primary_ip
+        +float resolution_time_ms
+        +Optional~str~ dns_server
+        +bool success
         +Optional~str~ error_message
+    }
+
+    class PublicIPInfo {
+        +str ip
+        +Optional~str~ country
+        +Optional~str~ province
+        +Optional~str~ city
+        +Optional~str~ district
+        +Optional~str~ isp
+        +Optional~str~ continent
+        +Optional~str~ zipcode
+        +Optional~str~ adcode
+        +str service_provider
+        +float query_time_ms
     }
 
     class TCPConnectionInfo {
@@ -567,14 +611,22 @@ classDiagram
         +int hop_number
         +str ip_address
         +Optional~str~ hostname
-        +float avg_time_ms
+        +float avg_response_time_ms
         +float packet_loss_percent
+        +Optional~str~ asn
+        +int packets_sent
+        +int packets_received
+        +float best_time_ms
+        +float worst_time_ms
+        +float std_dev_ms
     }
 
+    NetworkDiagnosisResult --> DNSResolutionInfo
     NetworkDiagnosisResult --> TCPConnectionInfo
     NetworkDiagnosisResult --> TLSInfo
     NetworkDiagnosisResult --> HTTPResponseInfo
     NetworkDiagnosisResult --> NetworkPathInfo
+    NetworkDiagnosisResult --> PublicIPInfo
     TLSInfo --> SSLCertificateInfo
     NetworkPathInfo --> TraceRouteHop
 ```
@@ -582,16 +634,32 @@ classDiagram
 ### 5.2 JSON输出格式规范
 
 #### 单个诊断结果格式
+
 ```json
 {
   "domain": "example.com",
   "target_ip": "93.184.216.34",
   "timestamp": "2025-09-10T12:00:00.000000",
+  "dns_resolution": {
+    "domain": "example.com",
+    "ip_addresses": ["93.184.216.34", "2606:2800:220:1:248:1893:25c8:1946"],
+    "primary_ip": "93.184.216.34",
+    "resolution_time_ms": 45.23,
+    "dns_server": "8.8.8.8",
+    "success": true,
+    "error_message": null
+  },
   "tcp_connection": {
     "host": "example.com",
     "port": 443,
+    "local_address": "192.168.1.100",
+    "local_port": 54321,
+    "remote_address": "93.184.216.34",
+    "remote_port": 443,
     "connect_time_ms": 45.23,
     "is_connected": true,
+    "socket_family": "AF_INET",
+    "socket_type": "SOCK_STREAM",
     "error_message": null
   },
   "tls_info": {
@@ -615,7 +683,7 @@ classDiagram
     "is_secure": true,
     "handshake_time_ms": 156.78
   },
-  "http_info": {
+  "http_response": {
     "status_code": 200,
     "reason_phrase": "OK",
     "headers": {
@@ -626,26 +694,48 @@ classDiagram
     "content_length": 1024,
     "content_type": "text/html",
     "server": "nginx/1.18.0",
-    "redirects": []
+    "redirect_count": 0,
+    "final_url": "https://example.com/"
   },
   "network_path": {
-    "destination": "example.com",
-    "hop_count": 8,
+    "target_host": "example.com",
+    "target_ip": "93.184.216.34",
+    "trace_method": "mtr",
     "hops": [
       {
         "hop_number": 1,
         "ip_address": "192.168.1.1",
         "hostname": "gateway.local",
-        "avg_time_ms": 1.23,
-        "packet_loss_percent": 0.0
+        "avg_response_time_ms": 1.23,
+        "packet_loss_percent": 0.0,
+        "asn": "AS12345",
+        "packets_sent": 5,
+        "packets_received": 5,
+        "best_time_ms": 1.1,
+        "worst_time_ms": 1.4,
+        "std_dev_ms": 0.1
       }
     ],
-    "total_time_ms": 45.67,
-    "trace_method": "mtr"
+    "total_hops": 8,
+    "avg_latency_ms": 45.67,
+    "packet_loss_percent": 0.0
   },
+  "public_ip_info": {
+    "ip": "203.0.113.1",
+    "country": "中国",
+    "province": "北京市",
+    "city": "北京市",
+    "district": "朝阳区",
+    "isp": "中国电信",
+    "continent": "亚洲",
+    "zipcode": "100000",
+    "adcode": "110105",
+    "service_provider": "百度智能云",
+    "query_time_ms": 123.45
+  },
+  "total_diagnosis_time_ms": 567.89,
   "success": true,
-  "total_time_ms": 567.89,
-  "error_message": null
+  "error_messages": []
 }
 ```
 
@@ -1026,21 +1116,54 @@ def calculate_timeout(target_type: str) -> int:
 4. **配置外部化**：遵循十二要素应用原则
 5. **错误恢复**：完善的异常处理和错误恢复机制
 6. **可扩展性**：易于添加新的诊断功能和输出格式
+7. **安全性**：sudoers配置避免密码硬编码
+8. **多服务容错**：公网IP信息收集支持多服务商容错
+9. **灵活配置**：支持URL和域名+端口两种配置方式
+10. **增强追踪**：mtr提供ASN信息和详细网络统计
 
 ### 7.2 技术栈总结
 
 | 层次 | 技术栈 | 作用 |
 |------|--------|------|
 | 应用层 | argparse, asyncio | 命令行解析、异步执行 |
-| 业务层 | Pydantic, PyYAML | 数据验证、配置管理 |
+| 业务层 | Pydantic v2, PyYAML | 数据验证、配置管理 |
 | 服务层 | socket, ssl, httpx, subprocess | 网络诊断实现 |
 | 数据层 | JSON, cryptography | 数据序列化、证书解析 |
 | 基础设施 | logging, pathlib | 日志记录、文件操作 |
+| 网络工具 | mtr, traceroute | 网络路径追踪 |
+| 包管理 | uv | 现代Python包管理器 |
 
-### 7.3 扩展方向
+### 7.3 当前实现特性
+
+#### 核心功能特性
+- **DNS解析分析**：详细的域名解析信息和性能统计
+- **TCP连接测试**：包含本地/远程地址、Socket类型等详细信息
+- **TLS/SSL分析**：完整的证书链分析和安全评估
+- **HTTP响应检查**：支持重定向跟踪和详细响应分析
+- **网络路径追踪**：mtr优先，包含ASN信息和丢包统计
+- **公网IP信息**：多服务商容错的地理位置信息收集
+
+#### 配置和控制特性
+- **TLS开关控制**：可配置是否进行TLS检测
+- **URL检测支持**：直接使用URL进行诊断
+- **智能路径解析**：配置文件路径自动解析
+- **动态输出目录**：基于配置文件名创建子目录
+- **统一日志系统**：双输出（控制台+文件）
+
+#### 运维和部署特性
+- **sudoers集成**：无密码执行mtr命令
+- **容器化支持**：Docker和Kubernetes部署
+- **环境变量配置**：完整的十二要素应用支持
+- **并发控制**：可配置的并发数和超时控制
+- **错误恢复**：完善的异常处理和重试机制
+
+### 7.4 扩展方向
 
 1. **Web界面**：基于FastAPI的REST API和Web UI
 2. **数据库存储**：历史数据存储和趋势分析
 3. **监控告警**：阈值监控和实时告警
 4. **分布式执行**：多节点分布式诊断
 5. **插件系统**：可插拔的诊断模块
+6. **机器学习**：网络性能预测和异常检测
+7. **多协议支持**：UDP、ICMP等协议诊断
+8. **云原生集成**：Prometheus指标、Grafana仪表板
