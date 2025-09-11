@@ -20,6 +20,7 @@ class TargetConfig(BaseModel):
     include_trace: bool = False
     include_http: bool = True
     include_tls: bool = True
+    include_icmp: bool = True  # 新增：是否包含ICMP探测
     description: Optional[str] = None
     
     @model_validator(mode='after')
@@ -50,6 +51,7 @@ class GlobalSettings(BaseModel):
     default_include_trace: bool = False
     default_include_http: bool = True
     default_include_tls: bool = True
+    default_include_icmp: bool = True
     
     save_individual_files: bool = True
     save_summary_report: bool = False  # 默认关闭批量汇总报告
@@ -146,7 +148,8 @@ class ConfigLoader:
             request_params = {
                 'include_trace': target.include_trace,
                 'include_http': target.include_http,
-                'include_tls': target.include_tls
+                'include_tls': target.include_tls,
+                'include_icmp': target.include_icmp
             }
 
             # 根据配置类型添加domain/port或url
@@ -199,6 +202,7 @@ class ConfigLoader:
                     'include_trace': False,
                     'include_http': True,
                     'include_tls': True,
+                    'include_icmp': True,
                     'description': 'Google搜索引擎'
                 },
                 {
@@ -207,6 +211,7 @@ class ConfigLoader:
                     'include_trace': False,
                     'include_http': True,
                     'include_tls': True,
+                    'include_icmp': True,
                     'description': 'GitHub代码托管平台'
                 },
                 {
@@ -215,6 +220,7 @@ class ConfigLoader:
                     'include_trace': False,
                     'include_http': True,
                     'include_tls': False,
+                    'include_icmp': True,
                     'description': 'HTTP测试服务'
                 },
                 {
@@ -222,6 +228,7 @@ class ConfigLoader:
                     'include_trace': False,
                     'include_http': True,
                     'include_tls': True,
+                    'include_icmp': True,
                     'description': 'GitHub API - URL示例'
                 },
                 {
@@ -229,6 +236,7 @@ class ConfigLoader:
                     'include_trace': False,
                     'include_http': True,
                     'include_tls': False,
+                    'include_icmp': True,
                     'description': 'HTTP测试API - URL示例'
                 }
             ],
@@ -237,6 +245,7 @@ class ConfigLoader:
                 'default_include_trace': False,
                 'default_include_http': True,
                 'default_include_tls': True,
+                'default_include_icmp': True,
                 'save_individual_files': True,
                 'save_summary_report': False,  # 默认关闭批量汇总报告
                 'max_concurrent': 3,

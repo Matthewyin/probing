@@ -55,6 +55,12 @@ async def main():
     )
 
     parser.add_argument(
+        "--no-icmp",
+        action="store_true",
+        help="跳过ICMP探测"
+    )
+
+    parser.add_argument(
         "--no-save",
         action="store_true",
         help="不保存结果到文件"
@@ -64,7 +70,7 @@ async def main():
 
     try:
         logger.info(f"Starting network diagnosis for {args.domain}:{args.port}")
-        logger.info(f"Configuration: trace={not args.no_trace}, http={not args.no_http}, save={not args.no_save}")
+        logger.info(f"Configuration: trace={not args.no_trace}, http={not args.no_http}, icmp={not args.no_icmp}, save={not args.no_save}")
 
         # 创建诊断运行器
         runner = DiagnosisRunner()
@@ -75,6 +81,7 @@ async def main():
             port=args.port,
             include_trace=not args.no_trace,
             include_http=not args.no_http,
+            include_icmp=not args.no_icmp,
             save_to_file=not args.no_save
         )
 
@@ -103,6 +110,13 @@ async def main():
             http = result.http_response
             print(f"HTTP状态: {http.status_code} {http.reason_phrase}")
             print(f"响应时间: {http.response_time_ms:.2f}ms")
+
+        if result.icmp_info:
+            icmp = result.icmp_info
+            print(f"ICMP探测: {icmp.packets_received}/{icmp.packets_sent} 包")
+            print(f"丢包率: {icmp.packet_loss_percent:.1f}%")
+            if icmp.avg_rtt_ms:
+                print(f"平均RTT: {icmp.avg_rtt_ms:.2f}ms")
 
         if result.network_path:
             path = result.network_path

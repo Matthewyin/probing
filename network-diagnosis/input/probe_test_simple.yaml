@@ -17,6 +17,31 @@ targets:
     include_http: true
     include_tls: true
     description: "nssa.io HTTPS连接测试"
+ 
+
+  # URL方式（自动解析域名和端口）
+  - url: "https://inspirista.nssa.io/reminder"
+    include_trace: true
+    include_http: true
+    include_tls: true
+    description: "Inspirations reminder"
+
+
+  # URL方式（自动解析域名和端口）
+  - url: "https://inspirista.nssa.io/notes"
+    include_trace: true
+    include_http: true
+    include_tls: true
+    description: "Inspirations notes"
+
+  # URL方式（自动解析域名和端口）
+  - url: "https://topfac.nssa.io/topology-editor/47ac1486-39a2-4b7d-b5b3-b37868a88998"
+    include_trace: true
+    include_http: true
+    include_tls: true
+    description: "Topology Editor"
+
+
   
 # 全局配置
 global_settings:

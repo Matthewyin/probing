@@ -26,6 +26,7 @@
 | **TCP连接测试** | 测试目标主机的TCP连接性能 | 连接时间、本地/远程地址、Socket信息 |
 | **TLS/SSL分析** | 收集TLS握手和证书信息 | 协议版本、加密套件、证书详情、有效期 |
 | **HTTP响应检查** | 分析HTTP/HTTPS请求和响应 | 状态码、响应头、响应时间、重定向链 |
+| **ICMP探测** | 使用ping命令测试网络连通性 | RTT统计、丢包率、数据包统计 |
 | **网络路径追踪** | 追踪到目标的网络路径（mtr/traceroute） | 跳点信息、延迟统计、丢包率、ASN信息 |
 | **公网IP信息** | 收集发起端公网IP地理位置信息 | IP地址、地理位置、ISP信息 |
 | **URL检测** | 支持直接URL诊断 | 自动解析域名和端口，支持HTTP/HTTPS |
@@ -267,8 +268,9 @@ uv run python main.py 192.168.1.1 --port 80 --no-trace
 3. **TCP连接测试**：测试到目标的TCP连接，记录连接时间和Socket信息
 4. **TLS握手**：如果启用TLS且是HTTPS端口，进行TLS握手和证书分析
 5. **HTTP请求**：如果启用HTTP，发送HTTP请求并分析响应
-6. **网络路径追踪**：如果启用追踪，使用mtr或traceroute追踪网络路径
-7. **结果保存**：将诊断结果保存为JSON文件
+6. **ICMP探测**：如果启用ICMP，使用ping命令测试网络连通性
+7. **网络路径追踪**：如果启用追踪，使用mtr或traceroute追踪网络路径
+8. **结果保存**：将诊断结果保存为JSON文件
 
 ### 新增功能特性
 
@@ -296,6 +298,37 @@ targets:
     include_tls: false   # 禁用TLS检测
 ```
 
+#### ICMP探测功能
+
+ICMP探测使用ping命令测试网络连通性，提供详细的RTT统计信息：
+
+**功能特性：**
+- 跨平台支持（Windows/Linux/macOS）
+- 可配置数据包数量和大小
+- 详细的RTT统计（最小/最大/平均/标准差）
+- 丢包率分析
+- 超时控制
+
+**配置示例：**
+```yaml
+targets:
+  - domain: google.com
+    port: 443
+    include_icmp: true   # 启用ICMP探测
+  - domain: internal.example.com
+    port: 80
+    include_icmp: false  # 禁用ICMP探测（内网服务）
+```
+
+**命令行控制：**
+```bash
+# 禁用ICMP探测
+uv run python main.py google.com --no-icmp
+
+# 启用ICMP探测（默认）
+uv run python main.py google.com
+```
+
 #### 增强的mtr网络追踪
 
 使用mtr命令进行网络路径追踪，提供更详细的信息：
@@ -307,13 +340,32 @@ targets:
 
 ### 输出文件
 
-每次诊断会在 `network-diagnosis/output/` 目录下生成一个JSON文件：
+#### 目录结构
+诊断结果会根据配置类型自动分类存储：
 
 ```text
-network-diagnosis/output/network_diagnosis_github.com_443_20250910_120000_123.json
+network-diagnosis/output/{config_name}/
+├── domain_based/          # 域名+端口配置的结果
+│   ├── network_diagnosis_github.com_443_20250910_120000_123.json
+│   └── network_diagnosis_example.com_80_20250910_120005_456.json
+└── url_based/             # URL配置的结果
+    ├── network_diagnosis_api.example.com_443_users_20250910_120010_789.json
+    └── network_diagnosis_api.example.com_443_orders_20250910_120015_012.json
 ```
 
-文件命名格式：`network_diagnosis_{domain}_{port}_{timestamp}_{random}.json`
+#### 文件命名规则
+
+**域名配置：**
+```
+network_diagnosis_{domain}_{port}_{timestamp}.json
+```
+
+**URL配置：**
+```
+network_diagnosis_{domain}_{port}_{clean_path}_{timestamp}.json
+```
+
+其中`{clean_path}`是清理后的URL路径，特殊字符会被替换为下划线。
 
 ## 📊 批量诊断
 
@@ -343,12 +395,25 @@ targets:
     include_tls: true
     description: "Google搜索引擎"
 
-  # URL方式（自动解析域名和端口）
+  # URL方式（自动解析域名、端口和路径）
   - url: "https://github.com/user/repo"
     include_trace: false
     include_http: true
     include_tls: true
     description: "GitHub代码托管平台"
+
+  # URL探测 - 不同路径的API端点
+  - url: "https://api.example.com/users"
+    include_trace: false
+    include_http: true
+    include_tls: true
+    description: "用户API端点"
+
+  - url: "https://api.example.com/orders"
+    include_trace: false
+    include_http: true
+    include_tls: true
+    description: "订单API端点"
 
   # HTTP服务（禁用TLS）
   - domain: "httpbin.org"
@@ -371,6 +436,7 @@ global_settings:
   default_include_trace: false
   default_include_http: true
   default_include_tls: true
+  default_include_icmp: true
 
   # 执行设置
   max_concurrent: 3
@@ -395,6 +461,7 @@ global_settings:
 | `include_trace` | boolean | ✗ | false | 是否执行网络路径追踪 |
 | `include_http` | boolean | ✗ | true | 是否收集HTTP响应信息 |
 | `include_tls` | boolean | ✗ | true | 是否进行TLS检测 |
+| `include_icmp` | boolean | ✗ | true | 是否执行ICMP探测 |
 | `description` | string | ✗ | null | 目标描述信息 |
 
 *注：`domain` 和 `url` 必须提供其中一个
@@ -408,6 +475,7 @@ global_settings:
 | `save_individual_files` | boolean | true | - | 是否保存单个JSON文件 |
 | `save_summary_report` | boolean | false | - | 是否生成汇总报告 |
 | `default_include_tls` | boolean | true | - | 默认TLS检测开关 |
+| `default_include_icmp` | boolean | true | - | 默认ICMP探测开关 |
 
 ### 批量诊断执行流程
 

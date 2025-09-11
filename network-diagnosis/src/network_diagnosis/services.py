@@ -3,6 +3,8 @@
 """
 import asyncio
 import json
+import platform
+import re
 import socket
 import ssl
 import subprocess
@@ -19,7 +21,7 @@ from cryptography.hazmat.primitives import hashes
 from .models import (
     DNSResolutionInfo, TCPConnectionInfo, TLSInfo, SSLCertificateInfo,
     HTTPResponseInfo, NetworkPathInfo, TraceRouteHop,
-    NetworkDiagnosisResult, DiagnosisRequest, PublicIPInfo
+    NetworkDiagnosisResult, DiagnosisRequest, PublicIPInfo, ICMPInfo
 )
 from .logger import get_logger
 from .config import settings
@@ -639,3 +641,256 @@ class PublicIPService:
                     isp=ip_data.get("isp")
                 )
         return None
+
+
+class ICMPService:
+    """ICMP探测服务"""
+
+    def __init__(self, packet_count: int = 4, packet_size: int = 32, timeout: int = 1000):
+        """
+        初始化ICMP服务
+
+        Args:
+            packet_count: 发送的数据包数量
+            packet_size: 数据包大小（字节）
+            timeout: 超时时间（毫秒）
+        """
+        self.packet_count = packet_count
+        self.packet_size = packet_size
+        self.timeout_ms = timeout
+
+    async def ping(self, host: str) -> Optional[ICMPInfo]:
+        """执行ICMP探测"""
+        logger.info(f"Starting ICMP ping to {host}")
+        start_time = time.time()
+
+        try:
+            # 构建ping命令（跨平台兼容）
+            ping_cmd = self._build_ping_command(host)
+            logger.info(f"Executing ping command: {' '.join(ping_cmd)}")
+
+            # 执行ping命令
+            process = await asyncio.create_subprocess_exec(
+                *ping_cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+
+            # 等待命令完成，设置超时
+            try:
+                stdout, stderr = await asyncio.wait_for(
+                    process.communicate(),
+                    timeout=self.timeout_ms / 1000 + 5  # 额外5秒缓冲
+                )
+            except asyncio.TimeoutError:
+                logger.warning(f"Ping command timed out for {host}")
+                process.kill()
+                return self._create_timeout_result(host, ping_cmd)
+
+            execution_time = (time.time() - start_time) * 1000
+
+            if process.returncode == 0:
+                # 解析ping输出
+                stdout_str = stdout.decode('utf-8', errors='ignore')
+                return self._parse_ping_output(stdout_str, host, ping_cmd, execution_time)
+            else:
+                # ping失败
+                stderr_str = stderr.decode('utf-8', errors='ignore')
+                logger.warning(f"Ping failed for {host}: {stderr_str}")
+                return self._create_error_result(host, ping_cmd, execution_time, stderr_str)
+
+        except Exception as e:
+            execution_time = (time.time() - start_time) * 1000
+            logger.error(f"ICMP ping execution failed for {host}: {str(e)}")
+            return self._create_error_result(host, [], execution_time, str(e))
+
+    def _build_ping_command(self, host: str) -> List[str]:
+        """构建跨平台的ping命令"""
+        import platform
+
+        system = platform.system().lower()
+
+        if system == "windows":
+            # Windows ping命令
+            cmd = [
+                "ping",
+                "-n", str(self.packet_count),  # 发送包数量
+                "-l", str(self.packet_size),   # 数据包大小
+                "-w", str(self.timeout_ms),    # 超时时间（毫秒）
+                host
+            ]
+        else:
+            # Linux/macOS ping命令
+            timeout_sec = max(1, self.timeout_ms // 1000)  # 转换为秒，最少1秒
+            cmd = [
+                "ping",
+                "-c", str(self.packet_count),  # 发送包数量
+                "-s", str(self.packet_size),   # 数据包大小
+                "-W", str(timeout_sec),        # 超时时间（秒）
+                "-i", "0.2",                   # 包间隔0.2秒
+                host
+            ]
+
+        return cmd
+
+    def _parse_ping_output(self, output: str, host: str, ping_cmd: List[str], execution_time: float) -> ICMPInfo:
+        """解析ping命令输出"""
+        import platform
+        import re
+
+        system = platform.system().lower()
+
+        try:
+            if system == "windows":
+                return self._parse_windows_ping(output, host, ping_cmd, execution_time)
+            else:
+                return self._parse_unix_ping(output, host, ping_cmd, execution_time)
+        except Exception as e:
+            logger.error(f"Failed to parse ping output: {str(e)}")
+            return self._create_error_result(host, ping_cmd, execution_time, f"Parse error: {str(e)}")
+
+    def _parse_windows_ping(self, output: str, host: str, ping_cmd: List[str], execution_time: float) -> ICMPInfo:
+        """解析Windows ping输出"""
+        lines = output.strip().split('\n')
+
+        # 提取目标IP
+        target_ip = host
+        ip_match = re.search(r'Pinging .+ \[([^\]]+)\]', output)
+        if ip_match:
+            target_ip = ip_match.group(1)
+
+        # 提取统计信息
+        packets_sent = 0
+        packets_received = 0
+        packet_loss = 100.0
+
+        # 查找统计行，例如: "Packets: Sent = 4, Received = 4, Lost = 0 (0% loss)"
+        stats_match = re.search(r'Packets: Sent = (\d+), Received = (\d+), Lost = \d+ \((\d+)% loss\)', output)
+        if stats_match:
+            packets_sent = int(stats_match.group(1))
+            packets_received = int(stats_match.group(2))
+            packet_loss = float(stats_match.group(3))
+
+        # 提取RTT统计，例如: "Minimum = 1ms, Maximum = 4ms, Average = 2ms"
+        min_rtt = max_rtt = avg_rtt = None
+        rtt_match = re.search(r'Minimum = (\d+)ms, Maximum = (\d+)ms, Average = (\d+)ms', output)
+        if rtt_match:
+            min_rtt = float(rtt_match.group(1))
+            max_rtt = float(rtt_match.group(2))
+            avg_rtt = float(rtt_match.group(3))
+
+        return ICMPInfo(
+            target_host=host,
+            target_ip=target_ip,
+            packets_sent=packets_sent,
+            packets_received=packets_received,
+            packet_loss_percent=packet_loss,
+            min_rtt_ms=min_rtt,
+            max_rtt_ms=max_rtt,
+            avg_rtt_ms=avg_rtt,
+            std_dev_rtt_ms=None,  # Windows ping不提供标准差
+            packet_size=self.packet_size,
+            timeout_ms=self.timeout_ms,
+            ping_command=' '.join(ping_cmd),
+            execution_time_ms=execution_time,
+            is_successful=packets_received > 0,
+            error_message=None if packets_received > 0 else "No packets received"
+        )
+
+    def _parse_unix_ping(self, output: str, host: str, ping_cmd: List[str], execution_time: float) -> ICMPInfo:
+        """解析Unix/Linux/macOS ping输出"""
+        lines = output.strip().split('\n')
+
+        # 提取目标IP
+        target_ip = host
+        ip_match = re.search(r'PING .+ \(([^)]+)\)', output)
+        if ip_match:
+            target_ip = ip_match.group(1)
+
+        # 提取统计信息，支持多种格式
+        # Linux: "4 packets transmitted, 4 received, 0% packet loss"
+        # macOS: "4 packets transmitted, 4 packets received, 0.0% packet loss"
+        packets_sent = 0
+        packets_received = 0
+        packet_loss = 100.0
+
+        # 尝试匹配不同的统计格式
+        stats_patterns = [
+            r'(\d+) packets transmitted, (\d+) packets received, (\d+(?:\.\d+)?)% packet loss',  # macOS
+            r'(\d+) packets transmitted, (\d+) received, (\d+(?:\.\d+)?)% packet loss',         # Linux
+        ]
+
+        for pattern in stats_patterns:
+            stats_match = re.search(pattern, output)
+            if stats_match:
+                packets_sent = int(stats_match.group(1))
+                packets_received = int(stats_match.group(2))
+                packet_loss = float(stats_match.group(3))
+                break
+
+        # 提取RTT统计，例如: "round-trip min/avg/max/stddev = 1.234/2.345/3.456/0.123 ms"
+        min_rtt = max_rtt = avg_rtt = std_dev = None
+        rtt_match = re.search(r'round-trip min/avg/max/stddev = ([^/]+)/([^/]+)/([^/]+)/([^\s]+) ms', output)
+        if rtt_match:
+            min_rtt = float(rtt_match.group(1))
+            avg_rtt = float(rtt_match.group(2))
+            max_rtt = float(rtt_match.group(3))
+            std_dev = float(rtt_match.group(4))
+
+        return ICMPInfo(
+            target_host=host,
+            target_ip=target_ip,
+            packets_sent=packets_sent,
+            packets_received=packets_received,
+            packet_loss_percent=packet_loss,
+            min_rtt_ms=min_rtt,
+            max_rtt_ms=max_rtt,
+            avg_rtt_ms=avg_rtt,
+            std_dev_rtt_ms=std_dev,
+            packet_size=self.packet_size,
+            timeout_ms=self.timeout_ms,
+            ping_command=' '.join(ping_cmd),
+            execution_time_ms=execution_time,
+            is_successful=packets_received > 0,
+            error_message=None if packets_received > 0 else "No packets received"
+        )
+
+    def _create_timeout_result(self, host: str, ping_cmd: List[str]) -> ICMPInfo:
+        """创建超时结果"""
+        return ICMPInfo(
+            target_host=host,
+            target_ip=host,
+            packets_sent=self.packet_count,
+            packets_received=0,
+            packet_loss_percent=100.0,
+            min_rtt_ms=None,
+            max_rtt_ms=None,
+            avg_rtt_ms=None,
+            std_dev_rtt_ms=None,
+            packet_size=self.packet_size,
+            timeout_ms=self.timeout_ms,
+            ping_command=' '.join(ping_cmd),
+            execution_time_ms=self.timeout_ms,
+            is_successful=False,
+            error_message="Ping command timed out"
+        )
+
+    def _create_error_result(self, host: str, ping_cmd: List[str], execution_time: float, error_msg: str) -> ICMPInfo:
+        """创建错误结果"""
+        return ICMPInfo(
+            target_host=host,
+            target_ip=host,
+            packets_sent=0,
+            packets_received=0,
+            packet_loss_percent=100.0,
+            min_rtt_ms=None,
+            max_rtt_ms=None,
+            avg_rtt_ms=None,
+            std_dev_rtt_ms=None,
+            packet_size=self.packet_size,
+            timeout_ms=self.timeout_ms,
+            ping_command=' '.join(ping_cmd) if ping_cmd else "ping (failed to build command)",
+            execution_time_ms=execution_time,
+            is_successful=False,
+            error_message=error_msg
+        )

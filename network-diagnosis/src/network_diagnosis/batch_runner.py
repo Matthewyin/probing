@@ -224,7 +224,11 @@ class BatchDiagnosisRunner:
     ) -> NetworkDiagnosisResult:
         """使用信号量控制的诊断任务"""
         async with semaphore:
-            logger.info(f"[{current}/{total}] Starting diagnosis for {request.domain}:{request.port}")
+            # 方案3：改进日志显示
+            if request.url:
+                logger.info(f"[{current}/{total}] Starting diagnosis for URL: {request.url}")
+            else:
+                logger.info(f"[{current}/{total}] Starting diagnosis for {request.domain}:{request.port}")
             
             try:
                 # 执行诊断
@@ -242,12 +246,20 @@ class BatchDiagnosisRunner:
                     self.diagnosis_runner.coordinator.save_result_to_file(result)
 
                 status = "SUCCESS" if result.success else "FAILED"
-                logger.info(f"[{current}/{total}] {request.domain}:{request.port} - {status} ({result.total_diagnosis_time_ms:.2f}ms)")
+                # 方案3：改进日志显示
+                if request.url:
+                    logger.info(f"[{current}/{total}] {request.url} - {status} ({result.total_diagnosis_time_ms:.2f}ms)")
+                else:
+                    logger.info(f"[{current}/{total}] {request.domain}:{request.port} - {status} ({result.total_diagnosis_time_ms:.2f}ms)")
 
                 return result
                 
             except asyncio.TimeoutError:
-                logger.error(f"[{current}/{total}] {request.domain}:{request.port} - TIMEOUT")
+                # 方案3：改进错误日志显示
+                if request.url:
+                    logger.error(f"[{current}/{total}] {request.url} - TIMEOUT")
+                else:
+                    logger.error(f"[{current}/{total}] {request.domain}:{request.port} - TIMEOUT")
                 timeout_result = NetworkDiagnosisResult(
                     domain=request.domain,
                     total_diagnosis_time_ms=global_settings.timeout_seconds * 1000,
@@ -257,7 +269,11 @@ class BatchDiagnosisRunner:
                 )
                 return timeout_result
             except Exception as e:
-                logger.error(f"[{current}/{total}] {request.domain}:{request.port} - ERROR: {str(e)}")
+                # 方案3：改进错误日志显示
+                if request.url:
+                    logger.error(f"[{current}/{total}] {request.url} - ERROR: {str(e)}")
+                else:
+                    logger.error(f"[{current}/{total}] {request.domain}:{request.port} - ERROR: {str(e)}")
                 error_result = NetworkDiagnosisResult(
                     domain=request.domain,
                     total_diagnosis_time_ms=0.0,

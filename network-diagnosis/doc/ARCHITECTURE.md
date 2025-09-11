@@ -28,6 +28,7 @@ graph TB
         TCPService[TCPConnectionService]
         TLSService[TLSService]
         HTTPService[HTTPService]
+        ICMPService[ICMPService]
         PathService[NetworkPathService]
     end
     
@@ -54,11 +55,13 @@ graph TB
     Coordinator --> TCPService
     Coordinator --> TLSService
     Coordinator --> HTTPService
+    Coordinator --> ICMPService
     Coordinator --> PathService
     
     TCPService --> Network
     TLSService --> Network
     HTTPService --> Network
+    ICMPService --> OS
     PathService --> OS
     
     ConfigLoader --> Config
@@ -220,6 +223,34 @@ class HTTPService:
         - 内容长度和类型分析
 ```
 
+#### ICMPService - ICMP探测服务
+```python
+class ICMPService:
+    """ICMP网络连通性测试实现"""
+
+    async def ping(self, host: str) -> Optional[ICMPInfo]:
+        # 功能实现
+        - 跨平台ping命令构建（Windows/Linux/macOS）
+        - 异步subprocess执行
+        - 输出解析和统计计算
+        - RTT分析（最小/最大/平均/标准差）
+        - 丢包率计算
+        - 超时控制（5秒）
+
+    def _build_ping_command(self, host: str) -> List[str]:
+        # 平台特定命令构建
+        - Windows: ping -n 4 -l 32 -w 1000
+        - Unix/Linux: ping -c 4 -s 32 -W 1 -i 0.2
+        - macOS: ping -c 4 -s 32 -W 1 -i 0.2
+
+    def _parse_ping_output(self, output: str) -> ICMPInfo:
+        # 输出解析
+        - 统计信息提取（发送/接收包数量）
+        - RTT时间解析（支持多种格式）
+        - 丢包率计算
+        - 错误处理和异常情况
+```
+
 #### NetworkPathService - 网络路径服务
 ```python
 class NetworkPathService:
@@ -312,6 +343,7 @@ sequenceDiagram
     participant TCP as TCPConnectionService
     participant TLS as TLSService
     participant HTTP as HTTPService
+    participant ICMP as ICMPService
     participant Path as NetworkPathService
     participant Models as Pydantic Models
 
@@ -326,6 +358,9 @@ sequenceDiagram
 
     Coord->>HTTP: get_http_info()
     HTTP-->>Coord: HTTPResponseInfo
+
+    Coord->>ICMP: ping()
+    ICMP-->>Coord: ICMPInfo
 
     Coord->>Path: trace_path()
     Path-->>Coord: NetworkPathInfo
@@ -525,6 +560,7 @@ classDiagram
         +Optional~TCPConnectionInfo~ tcp_connection
         +Optional~TLSInfo~ tls_info
         +Optional~HTTPResponseInfo~ http_response
+        +Optional~ICMPInfo~ icmp_info
         +Optional~NetworkPathInfo~ network_path
         +Optional~PublicIPInfo~ public_ip_info
         +float total_diagnosis_time_ms
@@ -621,10 +657,29 @@ classDiagram
         +float std_dev_ms
     }
 
+    class ICMPInfo {
+        +str target_host
+        +str target_ip
+        +int packets_sent
+        +int packets_received
+        +float packet_loss_percent
+        +Optional~float~ min_rtt_ms
+        +Optional~float~ max_rtt_ms
+        +Optional~float~ avg_rtt_ms
+        +Optional~float~ std_dev_rtt_ms
+        +int packet_size
+        +int timeout_ms
+        +str ping_command
+        +float execution_time_ms
+        +bool is_successful
+        +Optional~str~ error_message
+    }
+
     NetworkDiagnosisResult --> DNSResolutionInfo
     NetworkDiagnosisResult --> TCPConnectionInfo
     NetworkDiagnosisResult --> TLSInfo
     NetworkDiagnosisResult --> HTTPResponseInfo
+    NetworkDiagnosisResult --> ICMPInfo
     NetworkDiagnosisResult --> NetworkPathInfo
     NetworkDiagnosisResult --> PublicIPInfo
     TLSInfo --> SSLCertificateInfo
@@ -640,6 +695,12 @@ classDiagram
   "domain": "example.com",
   "target_ip": "93.184.216.34",
   "timestamp": "2025-09-10T12:00:00.000000",
+
+  // URL相关信息（仅URL配置时存在）
+  "original_url": "https://api.example.com/users",
+  "url_path": "/users",
+  "url_protocol": "https",
+  "is_url_based": true,
   "dns_resolution": {
     "domain": "example.com",
     "ip_addresses": ["93.184.216.34", "2606:2800:220:1:248:1893:25c8:1946"],
@@ -719,6 +780,23 @@ classDiagram
     "total_hops": 8,
     "avg_latency_ms": 45.67,
     "packet_loss_percent": 0.0
+  },
+  "icmp_info": {
+    "target_host": "example.com",
+    "target_ip": "93.184.216.34",
+    "packets_sent": 4,
+    "packets_received": 4,
+    "packet_loss_percent": 0.0,
+    "min_rtt_ms": 12.3,
+    "max_rtt_ms": 15.8,
+    "avg_rtt_ms": 14.2,
+    "std_dev_rtt_ms": 1.2,
+    "packet_size": 32,
+    "timeout_ms": 1000,
+    "ping_command": "ping -c 4 -s 32 -W 1 -i 0.2 example.com",
+    "execution_time_ms": 800.5,
+    "is_successful": true,
+    "error_message": null
   },
   "public_ip_info": {
     "ip": "203.0.113.1",
@@ -1140,11 +1218,13 @@ def calculate_timeout(target_type: str) -> int:
 - **TCP连接测试**：包含本地/远程地址、Socket类型等详细信息
 - **TLS/SSL分析**：完整的证书链分析和安全评估
 - **HTTP响应检查**：支持重定向跟踪和详细响应分析
+- **ICMP探测**：跨平台ping测试，RTT统计和丢包率分析
 - **网络路径追踪**：mtr优先，包含ASN信息和丢包统计
 - **公网IP信息**：多服务商容错的地理位置信息收集
 
 #### 配置和控制特性
 - **TLS开关控制**：可配置是否进行TLS检测
+- **ICMP开关控制**：可配置是否进行ICMP探测
 - **URL检测支持**：直接使用URL进行诊断
 - **智能路径解析**：配置文件路径自动解析
 - **动态输出目录**：基于配置文件名创建子目录
@@ -1165,5 +1245,5 @@ def calculate_timeout(target_type: str) -> int:
 4. **分布式执行**：多节点分布式诊断
 5. **插件系统**：可插拔的诊断模块
 6. **机器学习**：网络性能预测和异常检测
-7. **多协议支持**：UDP、ICMP等协议诊断
+7. **多协议支持**：UDP等其他协议诊断
 8. **云原生集成**：Prometheus指标、Grafana仪表板
