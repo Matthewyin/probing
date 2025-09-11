@@ -5,7 +5,7 @@ description = "Comprehensive network diagnosis and probing tools with TCP, TLS, 
 readme = "README.md"
 requires-python = ">=3.13"
 authors = [
-    {name = "Matthewyin", email = "2738550@qq.com"}
+    {name = "AlkaidY"}
 ]
 license = {text = "MIT"}
 keywords = ["network", "diagnosis", "tcp", "tls", "http", "traceroute", "mtr"]
@@ -26,6 +26,8 @@ dependencies = [
     "pydantic-settings>=2.10.1",
     "python-dotenv>=1.1.1",
     "pyyaml>=6.0.2",
+    "apscheduler>=3.10.0",
+    "watchdog>=3.0.0",
 ]
 
 [project.urls]

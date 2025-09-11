@@ -1,6 +1,16 @@
 # bos.lottery.cn	 简化网络诊断配置文件
 # 只测试已知可用的端口，确保快速成功的测试
 
+scheduler:
+  enabled: true
+  timezone: "Asia/Shanghai"
+  trigger_type: "cron"
+  cron: "*/1 * * * *"  # 每分钟执行一次（测试用）
+  max_instances: 1
+  coalesce: true
+  misfire_grace_time: 30
+
+
 targets:
   # HTTPS 连接测试 - 主要服务
   - domain: "g3jstls.lottery-it.com"

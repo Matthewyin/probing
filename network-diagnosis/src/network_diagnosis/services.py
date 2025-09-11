@@ -367,7 +367,7 @@ class NetworkPathService:
         """使用mtr进行路径追踪"""
         try:
             # 构建mtr命令 - 使用完整路径
-            cmd = ['sudo', 'mtr', '-rwc', '5', '-f', '3', '-n', '-i', '1', '-4', '-z', '--json', host]
+            cmd = ['sudo', 'mtr', '-rwc', '5', '-f', '1', '-n', '-i', '1', '-4', '-z', '--json', host]
             logger.info(f"Executing mtr command: {' '.join(cmd)}")
 
             # 执行命令
