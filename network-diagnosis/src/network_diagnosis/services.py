@@ -865,7 +865,7 @@ class NetworkPathService:
             try:
                 stdout, stderr = await asyncio.wait_for(
                     process.communicate(),
-                    timeout=30.0
+                    timeout=300.0
                 )
             except asyncio.TimeoutError:
                 logger.warning(f"mtr command timed out for {host}")
