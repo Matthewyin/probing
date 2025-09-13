@@ -12,6 +12,7 @@ from typing import Optional
 from .models import NetworkDiagnosisResult, DiagnosisRequest
 from .services import DNSResolutionService, EnhancedDNSResolutionService, TCPConnectionService, TLSService, HTTPService, NetworkPathService, ICMPService
 from .service_adapters import NetworkServiceFactory
+from .enhanced_analyzer import NetworkDiagnosisAnalyzer
 from .logger import get_logger
 from .config import settings
 
@@ -33,6 +34,10 @@ class NetworkDiagnosisCoordinator:
         # 保持原有服务不变
         self.path_service = NetworkPathService()
         self.icmp_service = ICMPService()
+
+        # 新增：增强分析器
+        self.analyzer = NetworkDiagnosisAnalyzer()
+
         self.output_dir = output_dir  # 自定义输出目录
     
     async def diagnose(self, request: DiagnosisRequest) -> NetworkDiagnosisResult:
@@ -143,13 +148,35 @@ class NetworkDiagnosisCoordinator:
             # 计算总诊断时间
             total_time = (time.time() - start_time) * 1000
             result.total_diagnosis_time_ms = total_time
-            
+
             # 判断诊断是否成功
             result.success = tcp_result.is_connected and len(error_messages) == 0
             result.error_messages = error_messages
-            
+
+            # 新增：执行增强分析
+            if settings.ENABLE_DETAILED_TIMING:
+                try:
+                    logger.info("Performing enhanced analysis...")
+                    enhanced_analysis = self.analyzer.analyze_diagnosis_result(result.to_json_dict())
+
+                    # 将分析结果添加到诊断结果中
+                    result.enhanced_analysis = enhanced_analysis
+
+                    # 记录关键分析结果
+                    summary = enhanced_analysis.get("analysis_summary", {})
+                    logger.info(f"Analysis: {summary.get('overall_health', 'unknown')} health, "
+                              f"{summary.get('successful_components', 0)}/{summary.get('total_components', 0)} components successful")
+
+                    # 如果有关键问题，记录警告
+                    critical_issues = summary.get("critical_issues", [])
+                    if critical_issues:
+                        logger.warning(f"Critical issues detected: {', '.join(critical_issues[:3])}")
+
+                except Exception as e:
+                    logger.warning(f"Enhanced analysis failed: {e}")
+
             logger.info(f"Network diagnosis completed in {total_time:.2f}ms, success: {result.success}")
-            
+
             return result
             
         except Exception as e:

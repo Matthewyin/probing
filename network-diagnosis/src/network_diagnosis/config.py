@@ -28,8 +28,21 @@ class AppSettings(BaseSettings):
     READ_TIMEOUT: int = 30     # 读取超时时间（秒）
     MAX_REDIRECTS: int = 5     # 最大重定向次数
 
+    # TCP服务配置
+    USE_ASYNC_TCP_SERVICE: bool = True      # 使用新的AsyncTCPService
+    TCP_FALLBACK_ENABLED: bool = True       # 启用TCP fallback机制
+    TCP_DETAILED_ERROR_ANALYSIS: bool = True  # 详细错误分析
+
+    # 智能重试配置
+    ENABLE_SMART_RETRY: bool = True         # 启用智能重试
+    TCP_MAX_RETRIES: int = 3                # TCP最大重试次数
+    TCP_RETRY_BASE_DELAY: float = 1.0       # 基础重试延迟（秒）
+    TCP_RETRY_MAX_DELAY: float = 30.0       # 最大重试延迟（秒）
+    TCP_RETRY_EXPONENTIAL_BACKOFF: bool = True  # 指数退避
+    TCP_RETRY_JITTER: bool = True           # 添加抖动
+
     # aiohttp客户端配置
-    USE_AIOHTTP_CLIENT: bool = True  # 是否使用aiohttp客户端
+    USE_AIOHTTP_CLIENT: bool = True  # 是否使用aiohttp客户端（HTTP/TLS）
     AIOHTTP_FALLBACK_ENABLED: bool = True  # 是否启用fallback到原实现
 
     # aiohttp连接器配置

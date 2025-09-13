@@ -192,6 +192,9 @@ class NetworkDiagnosisResult(BaseModel):
     total_diagnosis_time_ms: float = Field(..., description="总诊断时间（毫秒）")
     success: bool = Field(..., description="诊断是否成功完成")
     error_messages: List[str] = Field(default_factory=list)
+
+    # 增强分析结果
+    enhanced_analysis: Optional[Dict[str, Any]] = Field(None, description="增强分析结果")
     
     @validator('domain')
     def validate_domain(cls, v):
@@ -299,7 +302,7 @@ class DiagnosisRequest(BaseModel):
 # ============================================================================
 
 class EnhancedTCPConnectionInfo(TCPConnectionInfo):
-    """增强的TCP连接信息（aiohttp版本）"""
+    """增强的TCP连接信息（支持aiohttp和AsyncTCP）"""
 
     # 新增：详细timing信息
     timing_breakdown: Optional[Dict[str, float]] = Field(None, description="详细时间分解")
@@ -319,6 +322,19 @@ class EnhancedTCPConnectionInfo(TCPConnectionInfo):
 
     # 新增：传输层信息
     transport_info: Optional[Dict[str, Any]] = Field(None, description="传输层详细信息")
+    # 示例: {
+    #     "connection_method": "socket_asyncio",
+    #     "socket_type": "SOCK_STREAM",
+    #     "protocol": "TCP",
+    #     "is_reused_connection": False,
+    #     "error_classification": {...}  # 错误分类信息
+    # }
+
+    # AsyncTCP专用字段
+    remote_address: Optional[str] = Field(None, description="远程地址")
+    remote_port: Optional[int] = Field(None, description="远程端口")
+    system_errno: Optional[int] = Field(None, description="系统错误码")
+    error_classification: Optional[Dict[str, Any]] = Field(None, description="错误分类信息")
     # 示例: {
     #     "socket_options": {...},
     #     "local_endpoint": ("192.168.1.100", 51234),

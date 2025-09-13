@@ -1,6 +1,6 @@
 """
 基于aiohttp的网络诊断服务模块
-提供TCP、HTTP、TLS拨测的增强实现
+提供HTTP、TLS拨测的增强实现
 """
 import asyncio
 import aiohttp
@@ -13,186 +13,14 @@ from urllib.parse import urlparse
 from .logger import get_logger
 from .config import settings
 from .models import (
-    EnhancedTCPConnectionInfo, EnhancedHTTPResponseInfo, EnhancedTLSInfo,
-    TCPConnectionInfo, HTTPResponseInfo, TLSInfo, SSLCertificateInfo
+    EnhancedHTTPResponseInfo, EnhancedTLSInfo,
+    HTTPResponseInfo, TLSInfo, SSLCertificateInfo
 )
 
 logger = get_logger(__name__)
 
 
-class AiohttpTCPService:
-    """基于aiohttp的TCP连接测试服务"""
-    
-    def __init__(self):
-        self.connector = None
-        self.session = None
-    
-    async def __aenter__(self):
-        """异步上下文管理器入口"""
-        self.connector = aiohttp.TCPConnector(
-            limit=settings.AIOHTTP_CONNECTOR_LIMIT,
-            limit_per_host=settings.AIOHTTP_CONNECTOR_LIMIT_PER_HOST,
-            ttl_dns_cache=settings.AIOHTTP_CONNECTOR_TTL_DNS_CACHE,
-            use_dns_cache=settings.AIOHTTP_CONNECTOR_USE_DNS_CACHE,
-            enable_cleanup_closed=True
-        )
-        self.session = aiohttp.ClientSession(connector=self.connector)
-        return self
-    
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        """异步上下文管理器退出"""
-        if self.session:
-            await self.session.close()
-        if self.connector:
-            await self.connector.close()
-    
-    async def test_connection(self, host: str, port: int, target_ip: str) -> EnhancedTCPConnectionInfo:
-        """测试TCP连接（aiohttp版本）"""
-        start_time = time.time()
-        timing_breakdown = {}
-        
-        try:
-            # 构造测试URL（用于触发TCP连接）
-            test_url = f"http://{target_ip}:{port}/"
-            
-            # 创建自定义连接器以获取详细信息
-            connector = aiohttp.TCPConnector(
-                limit=1,
-                limit_per_host=1,
-                enable_cleanup_closed=True,
-                # 禁用SSL以进行纯TCP测试
-                ssl=False
-            )
-            
-            async with aiohttp.ClientSession(connector=connector) as session:
-                # 记录DNS解析开始时间（虽然这里使用IP，但保持结构一致）
-                dns_start = time.time()
-                tcp_start = time.time()
-                
-                try:
-                    # 尝试建立连接（使用HEAD请求减少数据传输）
-                    async with session.head(
-                        test_url,
-                        timeout=aiohttp.ClientTimeout(
-                            connect=settings.CONNECT_TIMEOUT,
-                            total=settings.CONNECT_TIMEOUT
-                        ),
-                        allow_redirects=False
-                    ) as response:
-                        connect_time = (time.time() - start_time) * 1000
-                        
-                        # 提取连接信息
-                        connection_info = self._extract_connection_info(response)
-                        timing_breakdown = self._extract_timing_info(start_time, dns_start, tcp_start)
-                        pool_info = self._get_pool_info(connector)
-                        
-                        logger.info(f"aiohttp TCP connection to {host}:{port} ({target_ip}) successful in {connect_time:.2f}ms")
-                        
-                        return EnhancedTCPConnectionInfo(
-                            host=host,
-                            port=port,
-                            target_ip=target_ip,
-                            connect_time_ms=connect_time,
-                            is_connected=True,
-                            socket_family="IPv4",  # 从连接信息中提取
-                            local_address=connection_info.get("local_address"),
-                            local_port=connection_info.get("local_port"),
-                            timing_breakdown=timing_breakdown,
-                            connection_pool_info=pool_info,
-                            transport_info=connection_info
-                        )
-                        
-                except (aiohttp.ClientConnectorError, aiohttp.ClientError, asyncio.TimeoutError) as e:
-                    # 连接失败
-                    connect_time = (time.time() - start_time) * 1000
-                    timing_breakdown = self._extract_timing_info(start_time, dns_start, tcp_start)
-                    
-                    logger.warning(f"aiohttp TCP connection to {host}:{port} ({target_ip}) failed: {str(e)}")
-                    
-                    return EnhancedTCPConnectionInfo(
-                        host=host,
-                        port=port,
-                        target_ip=target_ip,
-                        connect_time_ms=connect_time,
-                        is_connected=False,
-                        socket_family="IPv4",
-                        error_message=str(e),
-                        timing_breakdown=timing_breakdown
-                    )
-                    
-        except Exception as e:
-            connect_time = (time.time() - start_time) * 1000
-            logger.error(f"aiohttp TCP connection to {host}:{port} ({target_ip}) failed with unexpected error: {str(e)}")
-            
-            return EnhancedTCPConnectionInfo(
-                host=host,
-                port=port,
-                target_ip=target_ip,
-                connect_time_ms=connect_time,
-                is_connected=False,
-                socket_family="IPv4",
-                error_message=str(e),
-                timing_breakdown={"total_time_ms": connect_time}
-            )
-    
-    def _extract_connection_info(self, response) -> Dict[str, Any]:
-        """从响应中提取连接信息"""
-        connection_info = {}
-        
-        try:
-            # 尝试从响应中获取连接信息
-            if hasattr(response, 'connection') and response.connection:
-                transport = response.connection.transport
-                if transport:
-                    # 获取本地和远程地址
-                    if hasattr(transport, 'get_extra_info'):
-                        sockname = transport.get_extra_info('sockname')
-                        peername = transport.get_extra_info('peername')
-                        
-                        if sockname:
-                            connection_info['local_address'] = sockname[0]
-                            connection_info['local_port'] = sockname[1]
-                        
-                        if peername:
-                            connection_info['remote_address'] = peername[0]
-                            connection_info['remote_port'] = peername[1]
-                        
-                        # 获取socket信息
-                        sock = transport.get_extra_info('socket')
-                        if sock:
-                            connection_info['socket_family'] = sock.family.name
-                            connection_info['socket_type'] = sock.type.name
-                            
-        except Exception as e:
-            logger.debug(f"Failed to extract connection info: {e}")
-        
-        return connection_info
-    
-    def _extract_timing_info(self, start_time: float, dns_start: float, tcp_start: float) -> Dict[str, float]:
-        """提取详细的timing信息"""
-        current_time = time.time()
-        
-        return {
-            "dns_lookup_ms": (tcp_start - dns_start) * 1000,  # DNS查找时间（这里为0，因为使用IP）
-            "tcp_connect_ms": (current_time - tcp_start) * 1000,  # TCP连接时间
-            "total_time_ms": (current_time - start_time) * 1000  # 总时间
-        }
-    
-    def _get_pool_info(self, connector) -> Dict[str, Any]:
-        """获取连接池信息"""
-        pool_info = {}
-        
-        try:
-            if hasattr(connector, '_conns'):
-                # 获取连接池统计信息
-                pool_info['pool_size'] = len(connector._conns)
-                pool_info['active_connections'] = sum(len(conns) for conns in connector._conns.values())
-                pool_info['connection_reused'] = False  # 新连接默认为False
-                
-        except Exception as e:
-            logger.debug(f"Failed to get pool info: {e}")
-        
-        return pool_info
+# AiohttpTCPService 已删除 - 使用 AsyncTCPService 替代
 
 
 class AiohttpHTTPService:
