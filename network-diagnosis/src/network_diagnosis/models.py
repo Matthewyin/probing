@@ -192,9 +192,6 @@ class NetworkDiagnosisResult(BaseModel):
     total_diagnosis_time_ms: float = Field(..., description="总诊断时间（毫秒）")
     success: bool = Field(..., description="诊断是否成功完成")
     error_messages: List[str] = Field(default_factory=list)
-
-    # 增强分析结果
-    enhanced_analysis: Optional[Dict[str, Any]] = Field(None, description="增强分析结果")
     
     @validator('domain')
     def validate_domain(cls, v):

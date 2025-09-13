@@ -31,12 +31,8 @@ class TCPServiceAdapter:
                 # 尝试使用新的AsyncTCPService
                 result = await self.async_service.test_connection(host, port, target_ip)
 
-                # 如果需要详细信息，直接返回增强结果
-                if settings.ENABLE_DETAILED_TIMING:
-                    return result
-                else:
-                    # 转换为标准格式（向后兼容）
-                    return self._convert_to_standard_format(result)
+                # 直接返回增强结果
+                return result
 
             except Exception as e:
                 logger.warning(f"AsyncTCP test failed, falling back to legacy: {e}")
@@ -162,12 +158,8 @@ class HTTPServiceAdapter:
                 result = await aiohttp_service.get_http_info(url)
                 
                 if result:
-                    # 如果需要详细信息，直接返回增强结果
-                    if settings.ENABLE_DETAILED_TIMING:
-                        return result
-                    else:
-                        # 转换为标准格式（向后兼容）
-                        return self._convert_to_standard_format(result)
+                    # 直接返回增强结果
+                    return result
                 else:
                     return None
                     
@@ -212,12 +204,8 @@ class TLSServiceAdapter:
                 result = await aiohttp_service.get_tls_info(host, port)
 
                 if result:
-                    # 如果需要详细信息，直接返回增强结果
-                    if settings.ENABLE_DETAILED_TIMING:
-                        return result
-                    else:
-                        # 转换为标准格式（向后兼容）
-                        return self._convert_to_standard_format(result)
+                    # 直接返回增强结果
+                    return result
                 else:
                     return None
 

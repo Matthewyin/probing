@@ -236,8 +236,16 @@ class AiohttpTLSService:
                 # 3. 获取详细timing信息
                 timing_breakdown = self._extract_tls_timing(start_time)
 
-                # 4. TLS协商详情检测
-                negotiation_details = await self._get_tls_negotiation_details(host, port)
+                # 4. TLS协商详情检测（根据配置启用）
+                if settings.TLS_PROTOCOL_ENUMERATION or settings.TLS_CIPHER_DETECTION:
+                    negotiation_details = await self._get_tls_negotiation_details(host, port)
+                else:
+                    negotiation_details = {
+                        "detection_method": "disabled",
+                        "supported_protocols": ["检测已禁用"],
+                        "supported_cipher_suites": ["检测已禁用"],
+                        "note": "TLS协商详情检测已在配置中禁用"
+                    }
 
                 # 5. 安全特性检测
                 security_features = await self._detect_security_features(host, port)
@@ -330,28 +338,44 @@ class AiohttpTLSService:
                         "requires_client_cert": False,
                         "connection_successful": True,
                         "ssl_type": "单向SSL",
+                        "confidence_level": 1.0,  # 新增：成功连接的高置信度
                         "detection_method": "successful_connection"
                     }
 
         except ssl.SSLError as e:
             # 分析SSL错误
             error_msg = str(e).lower()
-            client_cert_keywords = [
+
+            # 双向SSL指示器（扩展版）
+            mutual_ssl_indicators = [
                 "certificate required", "client certificate",
                 "peer did not return a certificate", "certificate_required",
-                "handshake failure", "certificate unknown"
+                "handshake failure", "certificate unknown",
+                "unsafe_legacy_renegotiation_disabled",  # 新增：常见双向SSL错误
+                "legacy renegotiation", "renegotiation",
+                "certificate verify failed", "verify failed"
             ]
 
-            if any(keyword in error_msg for keyword in client_cert_keywords):
-                # 可能是双向SSL
+            # 检查是否为双向SSL指示器
+            is_mutual_ssl_indicator = any(keyword in error_msg for keyword in mutual_ssl_indicators)
+
+            if is_mutual_ssl_indicator:
+                # 分析具体的双向SSL类型
+                ssl_type, confidence = self._analyze_mutual_ssl_error(str(e))
                 server_cert_available = await self._can_get_server_cert(host, port)
+
                 return {
                     "requires_client_cert": True,
                     "connection_successful": False,
-                    "ssl_type": "双向SSL",
+                    "ssl_type": ssl_type,
+                    "confidence_level": confidence,  # 新增：置信度
                     "error_details": str(e),
                     "server_cert_available": server_cert_available,
-                    "detection_method": "ssl_error_analysis"
+                    "detection_method": "ssl_error_analysis",
+                    "evidence": [  # 新增：证据链
+                        f"SSL错误: {str(e)}",
+                        f"错误模式匹配: {[kw for kw in mutual_ssl_indicators if kw in error_msg]}"
+                    ]
                 }
             else:
                 # 其他SSL错误
@@ -359,6 +383,7 @@ class AiohttpTLSService:
                     "requires_client_cert": False,
                     "connection_successful": False,
                     "ssl_type": "SSL错误",
+                    "confidence_level": 0.1,  # 新增：低置信度
                     "error_details": str(e),
                     "detection_method": "other_ssl_error"
                 }
@@ -369,9 +394,42 @@ class AiohttpTLSService:
                 "requires_client_cert": False,
                 "connection_successful": False,
                 "ssl_type": "连接错误",
+                "confidence_level": 0.0,
                 "error_details": str(e),
                 "detection_method": "connection_error"
             }
+
+    def _analyze_mutual_ssl_error(self, error_msg: str) -> tuple[str, float]:
+        """分析双向SSL错误类型和置信度"""
+        error_lower = error_msg.lower()
+
+        # 高置信度双向SSL指示器
+        high_confidence_patterns = {
+            "unsafe_legacy_renegotiation_disabled": ("双向SSL", 0.85),
+            "certificate required": ("双向SSL", 0.95),
+            "client certificate": ("双向SSL", 0.90),
+            "certificate verify failed": ("双向SSL", 0.80)
+        }
+
+        # 中等置信度指示器
+        medium_confidence_patterns = {
+            "handshake failure": ("双向SSL", 0.70),
+            "renegotiation": ("双向SSL", 0.65),
+            "certificate unknown": ("双向SSL", 0.60)
+        }
+
+        # 检查高置信度模式
+        for pattern, (ssl_type, confidence) in high_confidence_patterns.items():
+            if pattern in error_lower:
+                return ssl_type, confidence
+
+        # 检查中等置信度模式
+        for pattern, (ssl_type, confidence) in medium_confidence_patterns.items():
+            if pattern in error_lower:
+                return ssl_type, confidence
+
+        # 默认：低置信度双向SSL
+        return "可能的双向SSL", 0.50
 
     async def _can_get_server_cert(self, host: str, port: int) -> bool:
         """检测是否能获取服务器证书（即使在双向SSL场景下）"""
@@ -425,15 +483,77 @@ class AiohttpTLSService:
         return timing
 
     async def _get_tls_negotiation_details(self, host: str, port: int) -> Dict[str, Any]:
-        """获取TLS协商详情"""
-        # 这里可以实现更复杂的TLS版本和密码套件检测
-        # 目前返回基础信息
-        return {
-            "detection_method": "basic",
-            "supported_protocols": ["检测中..."],
-            "supported_cipher_suites": ["检测中..."],
-            "note": "详细协商信息检测功能开发中"
-        }
+        """获取TLS协商详情（真实检测）"""
+        detection_start = time.time()
+
+        try:
+            # 根据配置选择性启用检测
+            tasks = []
+
+            if settings.TLS_PROTOCOL_ENUMERATION:
+                protocols_task = self._detect_supported_protocols(host, port)
+                tasks.append(protocols_task)
+            else:
+                protocols_task = None
+
+            if settings.TLS_CIPHER_DETECTION:
+                ciphers_task = self._detect_cipher_suites(host, port)
+                tasks.append(ciphers_task)
+            else:
+                ciphers_task = None
+
+            # 如果没有启用任何检测，返回基础信息
+            if not tasks:
+                return {
+                    "detection_method": "disabled",
+                    "supported_protocols": ["检测已禁用"],
+                    "supported_cipher_suites": ["检测已禁用"],
+                    "note": "所有TLS协商详情检测已在配置中禁用"
+                }
+
+            # 等待检测完成（使用配置的超时时间）
+            results = await asyncio.wait_for(
+                asyncio.gather(*tasks, return_exceptions=True),
+                timeout=settings.TLS_DETECTION_TIMEOUT
+            )
+
+            # 解析结果
+            protocols = results[0] if protocols_task else ["协议检测已禁用"]
+            ciphers = results[1] if ciphers_task and len(results) > 1 else results[0] if ciphers_task and len(results) == 1 else ["加密套件检测已禁用"]
+
+            # 处理检测结果
+            supported_protocols = protocols if not isinstance(protocols, Exception) else []
+            supported_ciphers = ciphers if not isinstance(ciphers, Exception) else []
+
+            detection_time = (time.time() - detection_start) * 1000
+
+            return {
+                "detection_method": "active_probing",
+                "supported_protocols": supported_protocols,
+                "supported_cipher_suites": supported_ciphers,
+                "detection_summary": {
+                    "total_protocols_tested": 4,  # TLS 1.0, 1.1, 1.2, 1.3
+                    "supported_protocols_count": len(supported_protocols),
+                    "cipher_suites_detected": len(supported_ciphers),
+                    "detection_time_ms": round(detection_time, 2)
+                }
+            }
+
+        except asyncio.TimeoutError:
+            return {
+                "detection_method": "timeout",
+                "supported_protocols": ["检测超时"],
+                "supported_cipher_suites": ["检测超时"],
+                "note": "协商详情检测超时，使用基础信息"
+            }
+        except Exception as e:
+            logger.warning(f"TLS negotiation details detection failed: {e}")
+            return {
+                "detection_method": "failed",
+                "supported_protocols": ["检测失败"],
+                "supported_cipher_suites": ["检测失败"],
+                "error": str(e)
+            }
 
     async def _detect_security_features(self, host: str, port: int) -> Dict[str, Any]:
         """检测安全特性"""
@@ -447,6 +567,113 @@ class AiohttpTLSService:
 
         # 可以在这里添加更详细的检测逻辑
         return features
+
+    async def _detect_supported_protocols(self, host: str, port: int) -> List[str]:
+        """检测服务器支持的TLS协议版本"""
+        supported_protocols = []
+
+        # 定义要测试的TLS版本
+        tls_versions = [
+            ("TLS 1.3", ssl.PROTOCOL_TLS_CLIENT, {"minimum_version": ssl.TLSVersion.TLSv1_3}),
+            ("TLS 1.2", ssl.PROTOCOL_TLS_CLIENT, {"minimum_version": ssl.TLSVersion.TLSv1_2, "maximum_version": ssl.TLSVersion.TLSv1_2}),
+            ("TLS 1.1", ssl.PROTOCOL_TLS_CLIENT, {"minimum_version": ssl.TLSVersion.TLSv1_1, "maximum_version": ssl.TLSVersion.TLSv1_1}),
+            ("TLS 1.0", ssl.PROTOCOL_TLS_CLIENT, {"minimum_version": ssl.TLSVersion.TLSv1, "maximum_version": ssl.TLSVersion.TLSv1})
+        ]
+
+        for version_name, protocol, context_options in tls_versions:
+            try:
+                if await self._test_tls_version(host, port, context_options):
+                    supported_protocols.append(version_name)
+            except Exception as e:
+                logger.debug(f"TLS version {version_name} test failed for {host}:{port}: {e}")
+                continue
+
+        return supported_protocols
+
+    async def _test_tls_version(self, host: str, port: int, context_options: dict) -> bool:
+        """测试特定TLS版本是否支持"""
+        try:
+            context = ssl.create_default_context()
+            context.check_hostname = False
+            context.verify_mode = ssl.CERT_NONE
+
+            # 设置TLS版本限制
+            if "minimum_version" in context_options:
+                context.minimum_version = context_options["minimum_version"]
+            if "maximum_version" in context_options:
+                context.maximum_version = context_options["maximum_version"]
+
+            # 尝试连接
+            with socket.create_connection((host, port), timeout=5) as sock:
+                with context.wrap_socket(sock, server_hostname=host) as ssock:
+                    # 连接成功，该版本被支持
+                    return True
+
+        except Exception:
+            return False
+
+    async def _detect_cipher_suites(self, host: str, port: int) -> List[str]:
+        """检测服务器支持的加密套件"""
+        supported_ciphers = []
+
+        # 常见的加密套件列表（按安全性排序）
+        common_ciphers = [
+            # TLS 1.3 套件
+            "TLS_AES_256_GCM_SHA384",
+            "TLS_CHACHA20_POLY1305_SHA256",
+            "TLS_AES_128_GCM_SHA256",
+
+            # TLS 1.2 ECDHE 套件
+            "ECDHE-RSA-AES256-GCM-SHA384",
+            "ECDHE-RSA-AES128-GCM-SHA256",
+            "ECDHE-RSA-CHACHA20-POLY1305",
+            "ECDHE-RSA-AES256-SHA384",
+            "ECDHE-RSA-AES128-SHA256",
+
+            # TLS 1.2 其他套件
+            "AES256-GCM-SHA384",
+            "AES128-GCM-SHA256",
+            "AES256-SHA256",
+            "AES128-SHA256"
+        ]
+
+        # 测试每个加密套件
+        for cipher in common_ciphers:
+            try:
+                if await self._test_cipher_suite(host, port, cipher):
+                    supported_ciphers.append(cipher)
+
+                # 限制检测数量，避免过长时间
+                if len(supported_ciphers) >= 10:
+                    break
+
+            except Exception as e:
+                logger.debug(f"Cipher {cipher} test failed for {host}:{port}: {e}")
+                continue
+
+        return supported_ciphers
+
+    async def _test_cipher_suite(self, host: str, port: int, cipher: str) -> bool:
+        """测试特定加密套件是否支持"""
+        try:
+            context = ssl.create_default_context()
+            context.check_hostname = False
+            context.verify_mode = ssl.CERT_NONE
+
+            # 设置特定的加密套件
+            context.set_ciphers(cipher)
+
+            # 尝试连接
+            with socket.create_connection((host, port), timeout=3) as sock:
+                with context.wrap_socket(sock, server_hostname=host) as ssock:
+                    # 检查实际使用的加密套件
+                    actual_cipher = ssock.cipher()
+                    if actual_cipher and actual_cipher[0] == cipher:
+                        return True
+                    return False
+
+        except Exception:
+            return False
 
     async def _handle_failed_connection(self, host: str, port: int, start_time: float) -> Optional[EnhancedTLSInfo]:
         """处理连接失败的情况，尝试获取部分信息"""

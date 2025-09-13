@@ -41,6 +41,13 @@ class AppSettings(BaseSettings):
     TCP_RETRY_EXPONENTIAL_BACKOFF: bool = True  # 指数退避
     TCP_RETRY_JITTER: bool = True           # 添加抖动
 
+    # TLS高级检测配置
+    TLS_ADVANCED_DETECTION: bool = True     # 启用智能双向SSL检测
+    TLS_PROTOCOL_ENUMERATION: bool = True   # 启用协议版本枚举
+    TLS_CIPHER_DETECTION: bool = True       # 启用加密套件检测
+    TLS_DETECTION_TIMEOUT: int = 15         # 单项检测超时（秒）
+    TLS_MAX_DETECTION_TIME: int = 45        # 总检测超时（秒）
+
     # aiohttp客户端配置
     USE_AIOHTTP_CLIENT: bool = True  # 是否使用aiohttp客户端（HTTP/TLS）
     AIOHTTP_FALLBACK_ENABLED: bool = True  # 是否启用fallback到原实现
@@ -52,7 +59,6 @@ class AppSettings(BaseSettings):
     AIOHTTP_CONNECTOR_USE_DNS_CACHE: bool = True  # 启用DNS缓存
 
     # 详细信息配置
-    ENABLE_DETAILED_TIMING: bool = True  # 启用详细时间分解
     ENABLE_CONNECTION_REUSE_INFO: bool = True  # 启用连接复用信息
     
     # 系统配置

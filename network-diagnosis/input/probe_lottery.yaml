@@ -15,14 +15,14 @@ targets:
   # HTTPS 连接测试 - 主要服务
   - domain: "g3jstls.lottery-it.com"
     port: 8443
-    include_trace: false
+    include_trace: true
     include_http: true
     include_tls: true
     description: "g3jstls.lottery-it.com	 HTTPS连接测试"
 
   - domain: "sso-mobile.lottery-sports.com"
     port: 443
-    include_trace: false
+    include_trace: true
     include_http: true
     include_tls: true
     description: "sso-mobile.lottery-sports.com HTTPS连接测试"
@@ -41,7 +41,7 @@ global_settings:
   
   # 执行设置
   max_concurrent: 2  # 2个目标，使用2个并发
-  timeout_seconds: 120  # 120秒超时
+  timeout_seconds: 300  # 300秒超时
   
   # 报告设置
   include_performance_analysis: true
