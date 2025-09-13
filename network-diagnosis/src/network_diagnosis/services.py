@@ -18,15 +18,26 @@ from cryptography import x509
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes
 
-from .models import (
-    DNSResolutionInfo, TCPConnectionInfo, TLSInfo, SSLCertificateInfo,
-    HTTPResponseInfo, NetworkPathInfo, TraceRouteHop,
-    NetworkDiagnosisResult, DiagnosisRequest, PublicIPInfo, ICMPInfo
-)
 from .logger import get_logger
 from .config import settings
 
 logger = get_logger(__name__)
+
+try:
+    import dns.resolver
+    import dns.exception
+    import dns.rdatatype
+    DNS_AVAILABLE = True
+except ImportError:
+    DNS_AVAILABLE = False
+    logger.warning("dnspython not available, falling back to socket-based DNS resolution")
+
+from .models import (
+    DNSResolutionInfo, DNSResolutionStep, AuthoritativeQueryResult,
+    TCPConnectionInfo, TLSInfo, SSLCertificateInfo,
+    HTTPResponseInfo, NetworkPathInfo, TraceRouteHop,
+    NetworkDiagnosisResult, DiagnosisRequest, PublicIPInfo, ICMPInfo
+)
 
 
 class DNSResolutionService:
@@ -128,6 +139,479 @@ class DNSResolutionService:
 
         except Exception:
             return None
+
+
+class EnhancedDNSResolutionService:
+    """增强的DNS解析服务 - 支持CNAME解析、循环检测和权威DNS查询"""
+
+    def __init__(self, max_cname_depth: int = 10):
+        """
+        初始化增强DNS解析服务
+
+        Args:
+            max_cname_depth: 最大CNAME解析深度，防止无限递归
+        """
+        self.max_cname_depth = max_cname_depth
+        self.fallback_service = DNSResolutionService()  # 降级服务
+
+    async def resolve_domain(self, domain: str) -> DNSResolutionInfo:
+        """
+        增强的域名解析，支持CNAME链路追踪和权威DNS查询
+
+        Args:
+            domain: 要解析的域名
+
+        Returns:
+            DNSResolutionInfo: 包含完整解析信息的结果
+        """
+        if not DNS_AVAILABLE:
+            logger.warning("dnspython not available, using fallback DNS resolution")
+            return await self.fallback_service.resolve_domain(domain)
+
+        start_time = time.time()
+
+        try:
+            # 检查是否已经是IP地址
+            try:
+                socket.inet_aton(domain)
+                # 如果是IP地址，直接返回
+                resolution_time = (time.time() - start_time) * 1000
+                return DNSResolutionInfo(
+                    domain=domain,
+                    resolved_ips=[domain],
+                    primary_ip=domain,
+                    resolution_time_ms=resolution_time,
+                    is_successful=True,
+                    record_type="IP",
+                    resolution_steps=[
+                        DNSResolutionStep(
+                            record_name=domain,
+                            record_type="IP",
+                            record_value=domain,
+                            ttl=None,
+                            dns_server="N/A",
+                            server_type="local"
+                        )
+                    ]
+                )
+            except socket.error:
+                pass  # 不是IP地址，继续DNS解析
+
+            # 1. 执行本地DNS解析（包含CNAME支持）
+            local_result = await self._resolve_with_cname_support(domain)
+
+            # 2. 发现并查询权威DNS服务器
+            if local_result.is_successful:
+                try:
+                    auth_result = await self._query_authoritative_dns(domain)
+                    if auth_result:
+                        local_result.authoritative_result = auth_result
+                except Exception as e:
+                    logger.warning(f"Authoritative DNS query failed for {domain}: {e}")
+
+            # 计算总解析时间
+            total_time = (time.time() - start_time) * 1000
+            local_result.resolution_time_ms = total_time
+
+            return local_result
+
+        except Exception as e:
+            logger.error(f"Enhanced DNS resolution failed for {domain}: {str(e)}")
+            # 降级到基础DNS解析
+            return await self.fallback_service.resolve_domain(domain)
+
+    async def _resolve_with_cname_support(self, domain: str) -> DNSResolutionInfo:
+        """
+        支持CNAME的DNS解析，包含循环检测
+
+        Args:
+            domain: 要解析的域名
+
+        Returns:
+            DNSResolutionInfo: 解析结果
+        """
+        resolution_steps = []
+        visited_domains = set()  # 循环检测
+        current_domain = domain
+        depth = 0
+
+        # 获取本地DNS服务器
+        local_dns_server = self._get_local_dns_server()
+
+        try:
+            # CNAME解析循环
+            while depth < self.max_cname_depth:
+                depth += 1
+
+                # 循环检测
+                if current_domain in visited_domains:
+                    logger.warning(f"CNAME loop detected for {domain} at {current_domain}")
+                    break
+                visited_domains.add(current_domain)
+
+                # 查询CNAME记录
+                cname_result = await self._query_cname_record(current_domain, local_dns_server)
+                if cname_result:
+                    # 记录CNAME步骤
+                    resolution_steps.append(DNSResolutionStep(
+                        record_name=current_domain,
+                        record_type="CNAME",
+                        record_value=cname_result['target'],
+                        ttl=cname_result['ttl'],
+                        dns_server=local_dns_server,
+                        server_type="local"
+                    ))
+                    current_domain = cname_result['target']
+                    continue
+
+                # 没有CNAME，查询A记录
+                a_results = await self._query_a_records(current_domain, local_dns_server)
+                if a_results:
+                    # 记录A记录步骤
+                    for a_result in a_results:
+                        resolution_steps.append(DNSResolutionStep(
+                            record_name=current_domain,
+                            record_type="A",
+                            record_value=a_result['address'],
+                            ttl=a_result['ttl'],
+                            dns_server=local_dns_server,
+                            server_type="local"
+                        ))
+
+                    # 收集所有IP地址
+                    resolved_ips = [result['address'] for result in a_results]
+
+                    return DNSResolutionInfo(
+                        domain=domain,
+                        resolved_ips=resolved_ips,
+                        primary_ip=resolved_ips[0] if resolved_ips else None,
+                        resolution_time_ms=0.0,  # 将在上层计算
+                        is_successful=True,
+                        local_dns_server=local_dns_server,
+                        resolution_steps=resolution_steps,
+                        # 兼容性字段
+                        dns_server=local_dns_server,
+                        record_type="A" if not any(step.record_type == "CNAME" for step in resolution_steps) else "CNAME",
+                        ttl=a_results[0]['ttl'] if a_results else None
+                    )
+
+                # 没有A记录，结束循环
+                break
+
+            # 如果到这里，说明解析失败
+            return DNSResolutionInfo(
+                domain=domain,
+                resolved_ips=[],
+                primary_ip=None,
+                resolution_time_ms=0.0,
+                is_successful=False,
+                error_message=f"Failed to resolve domain {domain}",
+                local_dns_server=local_dns_server,
+                resolution_steps=resolution_steps
+            )
+
+        except Exception as e:
+            logger.error(f"CNAME resolution failed for {domain}: {str(e)}")
+            return DNSResolutionInfo(
+                domain=domain,
+                resolved_ips=[],
+                primary_ip=None,
+                resolution_time_ms=0.0,
+                is_successful=False,
+                error_message=str(e),
+                local_dns_server=local_dns_server,
+                resolution_steps=resolution_steps
+            )
+
+    async def _query_cname_record(self, domain: str, dns_server: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """
+        查询CNAME记录
+
+        Args:
+            domain: 要查询的域名
+            dns_server: DNS服务器IP（可选）
+
+        Returns:
+            Dict包含target和ttl，如果没有CNAME记录则返回None
+        """
+        try:
+            resolver = dns.resolver.Resolver()
+            if dns_server:
+                resolver.nameservers = [dns_server]
+
+            # 查询CNAME记录
+            response = resolver.resolve(domain, 'CNAME')
+            if response:
+                cname_record = response[0]
+                return {
+                    'target': str(cname_record.target).rstrip('.'),
+                    'ttl': response.rrset.ttl
+                }
+        except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer, dns.exception.DNSException):
+            # 没有CNAME记录或查询失败
+            pass
+        except Exception as e:
+            logger.debug(f"CNAME query failed for {domain}: {e}")
+
+        return None
+
+    async def _query_a_records(self, domain: str, dns_server: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        查询A记录
+
+        Args:
+            domain: 要查询的域名
+            dns_server: DNS服务器IP（可选）
+
+        Returns:
+            List[Dict]: 包含address和ttl的字典列表
+        """
+        try:
+            resolver = dns.resolver.Resolver()
+            if dns_server:
+                resolver.nameservers = [dns_server]
+
+            # 查询A记录
+            response = resolver.resolve(domain, 'A')
+            results = []
+            for record in response:
+                results.append({
+                    'address': str(record),
+                    'ttl': response.rrset.ttl
+                })
+            return results
+        except Exception as e:
+            logger.debug(f"A record query failed for {domain}: {e}")
+            return []
+
+    def _get_local_dns_server(self) -> Optional[str]:
+        """
+        获取本地DNS服务器地址
+
+        Returns:
+            str: DNS服务器IP地址，如果无法获取则返回None
+        """
+        try:
+            # 尝试从dnspython获取默认DNS服务器
+            resolver = dns.resolver.Resolver()
+            if resolver.nameservers:
+                return resolver.nameservers[0]
+        except Exception:
+            pass
+
+        # 降级到系统方法
+        return self.fallback_service._get_system_dns_server()
+
+    async def _query_authoritative_dns(self, domain: str) -> Optional[AuthoritativeQueryResult]:
+        """
+        查询权威DNS服务器
+
+        Args:
+            domain: 要查询的域名
+
+        Returns:
+            AuthoritativeQueryResult: 权威查询结果，如果失败则返回None
+        """
+        try:
+            # 1. 发现权威DNS服务器
+            auth_servers = await self._discover_authoritative_servers(domain)
+            if not auth_servers:
+                logger.debug(f"No authoritative servers found for {domain}")
+                return None
+
+            # 2. 向权威服务器查询
+            for server_ip in auth_servers:
+                try:
+                    start_time = time.time()
+                    auth_result = await self._resolve_with_cname_support_on_server(domain, server_ip)
+                    query_time = (time.time() - start_time) * 1000
+
+                    if auth_result.is_successful:
+                        # 更新解析步骤的服务器类型
+                        auth_steps = []
+                        for step in auth_result.resolution_steps:
+                            auth_step = DNSResolutionStep(
+                                record_name=step.record_name,
+                                record_type=step.record_type,
+                                record_value=step.record_value,
+                                ttl=step.ttl,
+                                dns_server=server_ip,
+                                server_type="authoritative"
+                            )
+                            auth_steps.append(auth_step)
+
+                        return AuthoritativeQueryResult(
+                            queried_server=server_ip,
+                            query_time_ms=query_time,
+                            resolution_steps=auth_steps
+                        )
+                except Exception as e:
+                    logger.debug(f"Authoritative query failed on {server_ip}: {e}")
+                    continue
+
+            logger.debug(f"All authoritative servers failed for {domain}")
+            return None
+
+        except Exception as e:
+            logger.debug(f"Authoritative DNS discovery failed for {domain}: {e}")
+            return None
+
+    async def _discover_authoritative_servers(self, domain: str) -> List[str]:
+        """
+        发现域名的权威DNS服务器
+
+        Args:
+            domain: 要查询的域名
+
+        Returns:
+            List[str]: 权威DNS服务器IP地址列表
+        """
+        try:
+            # 域名层级分解
+            domain_hierarchy = self._decompose_domain(domain)
+
+            for zone_domain in domain_hierarchy:
+                try:
+                    # 查询NS记录
+                    resolver = dns.resolver.Resolver()
+                    response = resolver.resolve(zone_domain, 'NS')
+
+                    auth_servers = []
+                    for ns_record in response:
+                        ns_hostname = str(ns_record.target).rstrip('.')
+                        # 解析NS服务器的IP地址
+                        try:
+                            ns_ips = await self._query_a_records(ns_hostname)
+                            for ip_info in ns_ips:
+                                auth_servers.append(ip_info['address'])
+                        except Exception:
+                            continue
+
+                    if auth_servers:
+                        return auth_servers[:3]  # 最多返回3个权威服务器
+
+                except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer, dns.exception.DNSException):
+                    continue
+                except Exception as e:
+                    logger.debug(f"NS query failed for {zone_domain}: {e}")
+                    continue
+
+            return []
+
+        except Exception as e:
+            logger.debug(f"Authoritative server discovery failed: {e}")
+            return []
+
+    def _decompose_domain(self, domain: str) -> List[str]:
+        """
+        将域名分解为层级列表
+
+        Args:
+            domain: 输入域名
+
+        Returns:
+            List[str]: 域名层级列表，从具体到抽象
+        """
+        parts = domain.rstrip('.').split('.')
+        domains = []
+
+        # 从完整域名开始，逐级向上
+        for i in range(len(parts)):
+            subdomain = '.'.join(parts[i:])
+            domains.append(subdomain)
+
+        return domains
+
+    async def _resolve_with_cname_support_on_server(self, domain: str, dns_server: str) -> DNSResolutionInfo:
+        """
+        在指定DNS服务器上进行CNAME解析
+
+        Args:
+            domain: 要解析的域名
+            dns_server: DNS服务器IP
+
+        Returns:
+            DNSResolutionInfo: 解析结果
+        """
+        resolution_steps = []
+        visited_domains = set()
+        current_domain = domain
+        depth = 0
+
+        try:
+            # CNAME解析循环
+            while depth < self.max_cname_depth:
+                depth += 1
+
+                # 循环检测
+                if current_domain in visited_domains:
+                    break
+                visited_domains.add(current_domain)
+
+                # 查询CNAME记录
+                cname_result = await self._query_cname_record(current_domain, dns_server)
+                if cname_result:
+                    resolution_steps.append(DNSResolutionStep(
+                        record_name=current_domain,
+                        record_type="CNAME",
+                        record_value=cname_result['target'],
+                        ttl=cname_result['ttl'],
+                        dns_server=dns_server,
+                        server_type="authoritative"
+                    ))
+                    current_domain = cname_result['target']
+                    continue
+
+                # 查询A记录
+                a_results = await self._query_a_records(current_domain, dns_server)
+                if a_results:
+                    for a_result in a_results:
+                        resolution_steps.append(DNSResolutionStep(
+                            record_name=current_domain,
+                            record_type="A",
+                            record_value=a_result['address'],
+                            ttl=a_result['ttl'],
+                            dns_server=dns_server,
+                            server_type="authoritative"
+                        ))
+
+                    resolved_ips = [result['address'] for result in a_results]
+
+                    return DNSResolutionInfo(
+                        domain=domain,
+                        resolved_ips=resolved_ips,
+                        primary_ip=resolved_ips[0] if resolved_ips else None,
+                        resolution_time_ms=0.0,
+                        is_successful=True,
+                        local_dns_server=dns_server,
+                        resolution_steps=resolution_steps
+                    )
+
+                break
+
+            # 解析失败
+            return DNSResolutionInfo(
+                domain=domain,
+                resolved_ips=[],
+                primary_ip=None,
+                resolution_time_ms=0.0,
+                is_successful=False,
+                error_message=f"Failed to resolve {domain} on {dns_server}",
+                local_dns_server=dns_server,
+                resolution_steps=resolution_steps
+            )
+
+        except Exception as e:
+            return DNSResolutionInfo(
+                domain=domain,
+                resolved_ips=[],
+                primary_ip=None,
+                resolution_time_ms=0.0,
+                is_successful=False,
+                error_message=str(e),
+                local_dns_server=dns_server,
+                resolution_steps=resolution_steps
+            )
 
 
 class TCPConnectionService:

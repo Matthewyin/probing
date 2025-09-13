@@ -7,17 +7,44 @@ from urllib.parse import urlparse
 from pydantic import BaseModel, Field, validator, model_validator
 
 
+class DNSResolutionStep(BaseModel):
+    """DNS解析步骤"""
+    record_name: str = Field(..., description="查询的域名")
+    record_type: str = Field(..., description="记录类型：CNAME, A, AAAA")
+    record_value: str = Field(..., description="记录值")
+    ttl: Optional[int] = Field(None, description="TTL值（秒）")
+    dns_server: Optional[str] = Field(None, description="查询的DNS服务器IP")
+    server_type: str = Field(..., description="服务器类型：local 或 authoritative")
+
+
+class AuthoritativeQueryResult(BaseModel):
+    """权威查询结果"""
+    queried_server: str = Field(..., description="实际查询的权威服务器IP")
+    query_time_ms: float = Field(..., description="权威查询耗时（毫秒）")
+    resolution_steps: List[DNSResolutionStep] = Field(default_factory=list, description="权威查询的解析步骤")
+
+
 class DNSResolutionInfo(BaseModel):
     """DNS解析信息"""
     domain: str
     resolved_ips: List[str] = Field(default_factory=list, description="解析到的IP地址列表")
     primary_ip: Optional[str] = None
     resolution_time_ms: float = Field(..., description="DNS解析时间（毫秒）")
-    dns_server: Optional[str] = None
-    record_type: str = "A"  # A, AAAA, CNAME等
-    ttl: Optional[int] = None
     is_successful: bool
     error_message: Optional[str] = None
+
+    # 新增字段：DNS服务器信息
+    local_dns_server: Optional[str] = Field(None, description="本地DNS服务器IP")
+    authoritative_dns_servers: List[str] = Field(default_factory=list, description="权威DNS服务器主机名列表")
+
+    # 新增字段：解析步骤和权威查询结果
+    resolution_steps: List[DNSResolutionStep] = Field(default_factory=list, description="完整解析步骤")
+    authoritative_result: Optional[AuthoritativeQueryResult] = Field(None, description="权威查询结果")
+
+    # 保留的兼容性字段
+    dns_server: Optional[str] = None  # 保持向后兼容
+    record_type: str = "A"  # 保持向后兼容
+    ttl: Optional[int] = None  # 保持向后兼容
 
 
 class TCPConnectionInfo(BaseModel):
@@ -154,9 +181,9 @@ class NetworkDiagnosisResult(BaseModel):
 
     # 各项诊断结果
     dns_resolution: Optional[DNSResolutionInfo] = None
-    tcp_connection: Optional[TCPConnectionInfo] = None
-    tls_info: Optional[TLSInfo] = None
-    http_response: Optional[HTTPResponseInfo] = None
+    tcp_connection: Optional[Union[TCPConnectionInfo, "EnhancedTCPConnectionInfo"]] = None
+    tls_info: Optional[Union[TLSInfo, "EnhancedTLSInfo"]] = None
+    http_response: Optional[Union[HTTPResponseInfo, "EnhancedHTTPResponseInfo"]] = None
     network_path: Optional[NetworkPathInfo] = None
     icmp_info: Optional[ICMPInfo] = None  # 新增：ICMP探测信息
     public_ip_info: Optional[PublicIPInfo] = None  # 发起端公网IP信息
@@ -265,3 +292,107 @@ class DiagnosisRequest(BaseModel):
         if v and not v.strip():
             raise ValueError("URL cannot be empty")
         return v.strip() if v else v
+
+
+# ============================================================================
+# 增强版数据模型 - 用于aiohttp实现
+# ============================================================================
+
+class EnhancedTCPConnectionInfo(TCPConnectionInfo):
+    """增强的TCP连接信息（aiohttp版本）"""
+
+    # 新增：详细timing信息
+    timing_breakdown: Optional[Dict[str, float]] = Field(None, description="详细时间分解")
+    # 示例: {
+    #     "dns_lookup_ms": 2.1,
+    #     "tcp_connect_ms": 12.3,
+    #     "total_time_ms": 14.4
+    # }
+
+    # 新增：连接池信息
+    connection_pool_info: Optional[Dict[str, Any]] = Field(None, description="连接池信息")
+    # 示例: {
+    #     "pool_size": 10,
+    #     "active_connections": 3,
+    #     "connection_reused": False
+    # }
+
+    # 新增：传输层信息
+    transport_info: Optional[Dict[str, Any]] = Field(None, description="传输层详细信息")
+    # 示例: {
+    #     "socket_options": {...},
+    #     "local_endpoint": ("192.168.1.100", 51234),
+    #     "remote_endpoint": ("109.244.5.66", 8443)
+    # }
+
+
+class EnhancedHTTPResponseInfo(HTTPResponseInfo):
+    """增强的HTTP响应信息（aiohttp版本）"""
+
+    # 新增：详细timing分解
+    timing_breakdown: Optional[Dict[str, float]] = Field(None, description="HTTP请求时间分解")
+    # 示例: {
+    #     "dns_lookup_ms": 2.1,
+    #     "tcp_connect_ms": 12.3,
+    #     "tls_handshake_ms": 45.6,
+    #     "request_sent_ms": 1.2,
+    #     "waiting_time_ms": 156.7,
+    #     "content_transfer_ms": 23.4,
+    #     "total_time_ms": 241.3
+    # }
+
+    # 新增：连接信息
+    connection_info: Optional[Dict[str, Any]] = Field(None, description="HTTP连接信息")
+    # 示例: {
+    #     "connection_reused": False,
+    #     "keep_alive": True,
+    #     "http_version": "HTTP/1.1",
+    #     "compression": "gzip"
+    # }
+
+    # 新增：请求/响应详情
+    request_info: Optional[Dict[str, Any]] = Field(None, description="请求详细信息")
+    response_details: Optional[Dict[str, Any]] = Field(None, description="响应详细信息")
+
+
+class EnhancedTLSInfo(TLSInfo):
+    """增强的TLS信息（aiohttp版本）"""
+
+    # 新增：TLS握手详细timing
+    tls_timing_breakdown: Optional[Dict[str, float]] = Field(None, description="TLS握手时间分解")
+    # 示例: {
+    #     "tcp_connect_ms": 12.3,
+    #     "tls_handshake_ms": 45.6,
+    #     "certificate_verification_ms": 8.2
+    # }
+
+    # 新增：TLS协商详情
+    tls_negotiation_details: Optional[Dict[str, Any]] = Field(None, description="TLS协商详情")
+    # 示例: {
+    #     "supported_protocols": ["TLSv1.2", "TLSv1.3"],
+    #     "selected_protocol": "TLSv1.3",
+    #     "cipher_suites_offered": [...],
+    #     "selected_cipher_suite": "TLS_AES_256_GCM_SHA384"
+    # }
+
+    # 新增：完整证书链
+    certificate_chain: Optional[List[SSLCertificateInfo]] = Field(None, description="完整证书链")
+
+    # 新增：SSL上下文信息
+    ssl_context_info: Optional[Dict[str, Any]] = Field(None, description="SSL上下文信息")
+
+    # 新增：双向SSL检测信息
+    mutual_tls_info: Optional[Dict[str, Any]] = Field(None, description="双向SSL检测信息")
+    # 示例: {
+    #     "requires_client_cert": True,
+    #     "ssl_type": "双向SSL",
+    #     "detection_method": "ssl_error_analysis"
+    # }
+
+    # 新增：安全特性检测
+    security_features: Optional[Dict[str, Any]] = Field(None, description="安全特性检测")
+    # 示例: {
+    #     "sni_support": True,
+    #     "ocsp_stapling": False,
+    #     "certificate_transparency": True
+    # }

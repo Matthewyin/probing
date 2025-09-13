@@ -16,10 +16,16 @@ targets:
   - domain: "g3jstls.lottery-it.com"
     port: 8443
     include_trace: true
-    include_http: false
-    include_tls: false
+    include_http: true
+    include_tls: true
     description: "g3jstls.lottery-it.com	 HTTPS连接测试"
 
+  - domain: "sso-mobile.lottery-sports.com"
+    port: 443
+    include_trace: true
+    include_http: true
+    include_tls: true
+    description: "sso-mobile.lottery-sports.com HTTPS连接测试"
 
 # 全局配置
 global_settings:

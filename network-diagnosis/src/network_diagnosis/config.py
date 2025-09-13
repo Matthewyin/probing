@@ -27,6 +27,20 @@ class AppSettings(BaseSettings):
     CONNECT_TIMEOUT: int = 10  # TCP连接超时时间（秒）
     READ_TIMEOUT: int = 30     # 读取超时时间（秒）
     MAX_REDIRECTS: int = 5     # 最大重定向次数
+
+    # aiohttp客户端配置
+    USE_AIOHTTP_CLIENT: bool = True  # 是否使用aiohttp客户端
+    AIOHTTP_FALLBACK_ENABLED: bool = True  # 是否启用fallback到原实现
+
+    # aiohttp连接器配置
+    AIOHTTP_CONNECTOR_LIMIT: int = 100  # 连接池总大小
+    AIOHTTP_CONNECTOR_LIMIT_PER_HOST: int = 30  # 每主机最大连接数
+    AIOHTTP_CONNECTOR_TTL_DNS_CACHE: int = 300  # DNS缓存TTL（秒）
+    AIOHTTP_CONNECTOR_USE_DNS_CACHE: bool = True  # 启用DNS缓存
+
+    # 详细信息配置
+    ENABLE_DETAILED_TIMING: bool = True  # 启用详细时间分解
+    ENABLE_CONNECTION_REUSE_INFO: bool = True  # 启用连接复用信息
     
     # 系统配置
     SUDO_PASSWORD: Optional[str] = None  # sudo密码，用于mtr命令

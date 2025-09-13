@@ -10,7 +10,8 @@ from pathlib import Path
 from typing import Optional
 
 from .models import NetworkDiagnosisResult, DiagnosisRequest
-from .services import DNSResolutionService, TCPConnectionService, TLSService, HTTPService, NetworkPathService, ICMPService
+from .services import DNSResolutionService, EnhancedDNSResolutionService, TCPConnectionService, TLSService, HTTPService, NetworkPathService, ICMPService
+from .service_adapters import NetworkServiceFactory
 from .logger import get_logger
 from .config import settings
 
@@ -21,10 +22,15 @@ class NetworkDiagnosisCoordinator:
     """网络诊断协调器 - 统一管理所有诊断功能"""
 
     def __init__(self, output_dir: Optional[str] = None):
-        self.dns_service = DNSResolutionService()
-        self.tcp_service = TCPConnectionService()
-        self.tls_service = TLSService()
-        self.http_service = HTTPService()
+        # 使用增强的DNS解析服务，保留原服务作为降级备选
+        self.dns_service = EnhancedDNSResolutionService()
+
+        # 使用工厂模式创建服务（支持aiohttp和传统实现切换）
+        self.tcp_service = NetworkServiceFactory.create_tcp_service()
+        self.http_service = NetworkServiceFactory.create_http_service()
+        self.tls_service = NetworkServiceFactory.create_tls_service()
+
+        # 保持原有服务不变
         self.path_service = NetworkPathService()
         self.icmp_service = ICMPService()
         self.output_dir = output_dir  # 自定义输出目录
