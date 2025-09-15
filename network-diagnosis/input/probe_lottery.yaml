@@ -16,7 +16,7 @@ targets:
   - domain: "g3jstls.lottery-it.com"
     port: 8443
     include_trace: true
-    include_http: true
+    include_http: false
     include_tls: true
     description: "g3jstls.lottery-it.com	 HTTPS连接测试"
 

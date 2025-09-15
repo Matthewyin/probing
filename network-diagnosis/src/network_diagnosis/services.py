@@ -1130,7 +1130,7 @@ class PublicIPService:
 class ICMPService:
     """ICMP探测服务"""
 
-    def __init__(self, packet_count: int = 4, packet_size: int = 32, timeout: int = 1000):
+    def __init__(self, packet_count: int = 5, packet_size: int = 64, timeout: int = 3000):
         """
         初始化ICMP服务
 
@@ -1164,7 +1164,7 @@ class ICMPService:
             try:
                 stdout, stderr = await asyncio.wait_for(
                     process.communicate(),
-                    timeout=self.timeout_ms / 1000 + 5  # 额外5秒缓冲
+                    timeout=self.timeout_ms / 1000 + 15  # 额外5秒缓冲
                 )
             except asyncio.TimeoutError:
                 logger.warning(f"Ping command timed out for {host}")
@@ -1211,7 +1211,7 @@ class ICMPService:
                 "-c", str(self.packet_count),  # 发送包数量
                 "-s", str(self.packet_size),   # 数据包大小
                 "-W", str(timeout_sec),        # 超时时间（秒）
-                "-i", "0.2",                   # 包间隔0.2秒
+                "-i", "1",                   # 包间隔1秒
                 host
             ]
 
@@ -1312,14 +1312,23 @@ class ICMPService:
                 packet_loss = float(stats_match.group(3))
                 break
 
-        # 提取RTT统计，例如: "round-trip min/avg/max/stddev = 1.234/2.345/3.456/0.123 ms"
+        # 提取RTT统计，支持不同系统格式
+        # macOS: "round-trip min/avg/max/stddev = 1.234/2.345/3.456/0.123 ms"
+        # Linux: "rtt min/avg/max/mdev = 1.234/2.345/3.456/0.123 ms"
         min_rtt = max_rtt = avg_rtt = std_dev = None
-        rtt_match = re.search(r'round-trip min/avg/max/stddev = ([^/]+)/([^/]+)/([^/]+)/([^\s]+) ms', output)
-        if rtt_match:
-            min_rtt = float(rtt_match.group(1))
-            avg_rtt = float(rtt_match.group(2))
-            max_rtt = float(rtt_match.group(3))
-            std_dev = float(rtt_match.group(4))
+        rtt_patterns = [
+            r'round-trip min/avg/max/stddev = ([^/]+)/([^/]+)/([^/]+)/([^\s]+) ms',  # macOS
+            r'rtt min/avg/max/mdev = ([^/]+)/([^/]+)/([^/]+)/([^\s]+) ms',          # Linux
+        ]
+
+        for pattern in rtt_patterns:
+            rtt_match = re.search(pattern, output)
+            if rtt_match:
+                min_rtt = float(rtt_match.group(1))
+                avg_rtt = float(rtt_match.group(2))
+                max_rtt = float(rtt_match.group(3))
+                std_dev = float(rtt_match.group(4))
+                break
 
         return ICMPInfo(
             target_host=host,
