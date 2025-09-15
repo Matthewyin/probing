@@ -4,6 +4,8 @@
 
 ### 1.1 整体架构图
 
+本文档描述了网络诊断工具的完整系统架构，包括最新的功能增强特性：HTTP头信息增强解析、ICMP多IP拨测、MTR多IP拨测等。
+
 ```mermaid
 graph TB
     subgraph "用户接口层"
@@ -180,13 +182,44 @@ class BatchDiagnosisRunner:
 ```python
 class TCPConnectionService:
     """TCP连接测试实现"""
-    
+
     async def test_connection(self, host: str, port: int) -> TCPConnectionInfo:
         # 功能实现
         - socket.socket(): 创建TCP套接字
         - socket.connect_ex(): 非阻塞连接测试
         - 连接时间测量（毫秒级精度）
         - 错误状态捕获和处理
+```
+
+#### HTTPService - HTTP响应服务（增强版）
+```python
+class HTTPService:
+    """HTTP响应信息收集实现（包含增强解析功能）"""
+
+    async def get_http_info(self, url: str) -> Optional[HTTPResponseInfo]:
+        # 基础功能
+        - httpx.AsyncClient: 异步HTTP客户端
+        - 响应时间测量
+        - 重定向跟踪
+        - 响应头和状态码收集
+
+        # 🆕 增强功能
+        - _parse_origin_info(): 源站信息解析
+        - _analyze_headers(): HTTP头分析
+        - _detect_cdn_provider(): CDN检测
+        - _extract_possible_origin_ips(): IP地址提取
+
+    def _parse_origin_info(self, headers: Dict[str, str]) -> OriginServerInfo:
+        """解析源站相关信息"""
+        # 提取X-Real-IP、X-Forwarded-For等头信息
+        # 识别CDN提供商特征
+        # 分析代理链路信息
+
+    def _analyze_headers(self, headers: Dict[str, str]) -> HTTPHeaderAnalysis:
+        """分析HTTP头信息"""
+        # 安全头分析（X-Frame-Options、CSP等）
+        # 性能头分析（Cache-Control、ETag等）
+        # 自定义头统计和分类
 ```
 
 #### TLSService - TLS/SSL服务
@@ -223,66 +256,89 @@ class HTTPService:
         - 内容长度和类型分析
 ```
 
-#### ICMPService - ICMP探测服务
+#### ICMPService - ICMP探测服务（增强版）
 ```python
 class ICMPService:
-    """ICMP网络连通性测试实现"""
+    """ICMP网络连通性测试实现（支持多IP并行测试）"""
 
     async def ping(self, host: str) -> Optional[ICMPInfo]:
-        # 功能实现
-        - 跨平台ping命令构建（Windows/Linux/macOS）
-        - 异步subprocess执行
-        - 输出解析和统计计算
-        - RTT分析（最小/最大/平均/标准差）
-        - 丢包率计算
-        - 超时控制（5秒）
+        # 传统单IP测试（保持向后兼容）
 
-    def _build_ping_command(self, host: str) -> List[str]:
-        # 平台特定命令构建
-        - Windows: ping -n 4 -l 32 -w 1000
-        - Unix/Linux: ping -c 4 -s 32 -W 1 -i 0.2
-        - macOS: ping -c 4 -s 32 -W 1 -i 0.2
+    # 🆕 多IP并行测试功能
+    async def ping_multiple_ips(self, domain: str, ip_list: List[str]) -> MultiIPICMPInfo:
+        """对多个IP进行并行ICMP测试"""
+        # 创建并发任务
+        tasks = [(ip, asyncio.create_task(self.ping_ip_directly(ip))) for ip in ip_list]
 
-    def _parse_ping_output(self, output: str) -> ICMPInfo:
-        # 输出解析
-        - 统计信息提取（发送/接收包数量）
-        - RTT时间解析（支持多种格式）
-        - 丢包率计算
-        - 错误处理和异常情况
+        # 等待所有任务完成
+        results = await asyncio.gather(*[task for _, task in tasks], return_exceptions=True)
+
+        # 汇总结果和统计分析
+        return self._create_icmp_summary(results)
+
+    async def ping_ip_directly(self, ip: str) -> Optional[ICMPInfo]:
+        """直接对IP地址进行ping测试"""
+        # 跨平台ping命令构建
+        # 异步subprocess执行
+        # 输出解析和统计计算
+
+    def _create_icmp_summary(self, results: Dict[str, Optional[ICMPInfo]]) -> ICMPSummary:
+        """创建ICMP测试汇总统计"""
+        # 计算成功率和失败率
+        # 识别最佳性能IP
+        # 统计RTT分布和丢包率
+        # 生成性能对比报告
 ```
 
-#### NetworkPathService - 网络路径服务
+#### NetworkPathService - 网络路径服务（增强版）
 ```python
 class NetworkPathService:
-    """网络路径追踪实现"""
+    """网络路径追踪实现（支持多IP并行追踪）"""
 
     async def trace_path(self, host: str) -> Optional[NetworkPathInfo]:
-        # 功能实现
-        - mtr命令执行（优先，使用sudoers无密码配置）
-        - traceroute命令备选
-        - JSON输出解析（mtr --json格式）
-        - 跳点信息提取（包含ASN信息）
-        - 超时控制（30秒）
+        # 传统单IP路径追踪（保持向后兼容）
 
-    async def _trace_with_mtr(self, host: str) -> Optional[NetworkPathInfo]:
-        # mtr命令参数：sudo mtr -rwc 5 -f 3 -n -i 1 -4 -z --json
-        # -rwc 5: 报告模式，等待完成，发送5个包
-        # -f 3: 从第3跳开始
-        # -n: 不解析主机名
-        # -i 1: 包间隔1秒
-        # -4: 强制IPv4
-        # -z: 显示ASN信息
-        # --json: JSON格式输出
+    # 🆕 多IP并行路径追踪功能
+    async def trace_multiple_ips(self, domain: str, ip_list: List[str]) -> MultiIPNetworkPathInfo:
+        """对多个IP进行并行网络路径追踪"""
+        # 创建并发任务
+        tasks = [(ip, asyncio.create_task(self.trace_ip_directly(ip))) for ip in ip_list]
 
-    async def _trace_with_traceroute(self, host: str) -> Optional[NetworkPathInfo]
+        # 等待所有任务完成
+        results = await asyncio.gather(*[task for _, task in tasks], return_exceptions=True)
 
-    def _parse_mtr_output(self, mtr_data: Dict[str, Any], host: str) -> NetworkPathInfo:
+        # 路径对比分析
+        return self._create_path_summary(results)
+
+    async def trace_ip_directly(self, ip: str) -> Optional[NetworkPathInfo]:
+        """直接对IP地址进行路径追踪"""
+        # mtr命令执行（优先）
+        # traceroute命令备选
+        # JSON输出解析
+
+    def _create_path_summary(self, results: Dict[str, Optional[NetworkPathInfo]]) -> PathSummary:
+        """创建网络路径追踪汇总统计"""
+        # 分析共同跳点
+        # 计算路径差异
+        # 识别最短/最快路径
+        # 统计网络质量指标
+
+    def _analyze_common_hops(self, path_results: Dict[str, NetworkPathInfo]) -> List[str]:
+        """分析多个路径的共同跳点"""
+        # 提取所有路径的跳点信息
+        # 计算跳点出现频率
+        # 识别网络基础设施节点
+
+    async def _trace_with_mtr_direct(self, ip: str) -> Optional[NetworkPathInfo]:
+        # mtr命令参数：sudo mtr -rwc 5 -f 1 -n -i 1 -4 -z --json {ip}
+        # 直接对IP地址进行追踪，避免DNS解析
+
+    def _parse_mtr_output(self, mtr_data: Dict[str, Any], ip: str) -> NetworkPathInfo:
         # 解析mtr JSON输出，提取：
         # - 跳点IP地址和主机名
-        # - 平均响应时间
-        # - 丢包率
-        # - ASN信息
-        # - 数据包统计
+        # - 平均响应时间和丢包率
+        # - ASN信息和地理位置
+        # - 数据包统计和质量指标
 
 ## 3. 调用关系图
 
@@ -548,7 +604,7 @@ class ConfigLoader:
 
 ## 5. 数据模型架构
 
-### 5.1 Pydantic模型结构
+### 5.1 Pydantic模型结构（增强版）
 
 ```mermaid
 classDiagram
@@ -563,9 +619,93 @@ classDiagram
         +Optional~ICMPInfo~ icmp_info
         +Optional~NetworkPathInfo~ network_path
         +Optional~PublicIPInfo~ public_ip_info
+        +🆕Optional~MultiIPICMPInfo~ multi_ip_icmp
+        +🆕Optional~MultiIPNetworkPathInfo~ multi_ip_network_path
         +float total_diagnosis_time_ms
         +bool success
         +List~str~ error_messages
+    }
+
+    class HTTPResponseInfo {
+        +int status_code
+        +str reason_phrase
+        +Dict headers
+        +float response_time_ms
+        +Optional~int~ content_length
+        +Optional~str~ content_type
+        +Optional~str~ server
+        +List~str~ redirects
+        +🆕Optional~OriginServerInfo~ origin_info
+        +🆕Optional~HTTPHeaderAnalysis~ header_analysis
+    }
+
+    class OriginServerInfo {
+        +Optional~str~ real_ip
+        +Optional~List[str]~ forwarded_for
+        +Optional~str~ forwarded_for_raw
+        +Optional~str~ backend_server
+        +Optional~str~ upstream_server
+        +Optional~str~ cdn_provider
+        +Optional~str~ cache_status
+        +Optional~List[str]~ possible_origin_ips
+    }
+
+    class HTTPHeaderAnalysis {
+        +Dict[str, str] security_headers
+        +Dict[str, str] performance_headers
+        +Dict[str, str] custom_headers
+        +int total_headers_count
+        +int custom_headers_count
+    }
+
+    class MultiIPICMPInfo {
+        +str target_domain
+        +List[str] tested_ips
+        +Dict[str, Optional[ICMPInfo]] icmp_results
+        +ICMPSummary summary
+        +float total_execution_time_ms
+        +bool concurrent_execution
+    }
+
+    class ICMPSummary {
+        +int total_ips
+        +int successful_ips
+        +int failed_ips
+        +float success_rate
+        +Optional~float~ avg_rtt_ms
+        +Optional~float~ min_rtt_ms
+        +Optional~float~ max_rtt_ms
+        +Optional~str~ best_performing_ip
+        +int total_packets_sent
+        +int total_packets_received
+        +float overall_packet_loss_percent
+    }
+
+    class MultiIPNetworkPathInfo {
+        +str target_domain
+        +List[str] tested_ips
+        +Dict[str, Optional[NetworkPathInfo]] path_results
+        +PathSummary summary
+        +float total_execution_time_ms
+        +bool concurrent_execution
+        +str trace_method
+    }
+
+    class PathSummary {
+        +int total_ips
+        +int successful_traces
+        +int failed_traces
+        +float success_rate
+        +Optional~float~ avg_hops
+        +Optional~int~ min_hops
+        +Optional~int~ max_hops
+        +Optional~str~ shortest_path_ip
+        +Optional~float~ avg_latency_ms
+        +Optional~float~ min_latency_ms
+        +Optional~float~ max_latency_ms
+        +Optional~str~ fastest_ip
+        +List[str] common_hops
+        +int unique_paths
     }
 
     class DNSResolutionInfo {
@@ -1198,6 +1338,10 @@ def calculate_timeout(target_type: str) -> int:
 8. **多服务容错**：公网IP信息收集支持多服务商容错
 9. **灵活配置**：支持URL和域名+端口两种配置方式
 10. **增强追踪**：mtr提供ASN信息和详细网络统计
+11. **🆕 智能多IP处理**：自动检测并处理多IP场景
+12. **🆕 HTTP头深度解析**：提供源站信息和CDN检测
+13. **🆕 并行性能测试**：多IP并行测试提高效率
+14. **🆕 向后兼容性**：新功能不影响现有使用方式
 
 ### 7.2 技术栈总结
 
@@ -1218,8 +1362,11 @@ def calculate_timeout(target_type: str) -> int:
 - **TCP连接测试**：包含本地/远程地址、Socket类型等详细信息
 - **TLS/SSL分析**：完整的证书链分析和安全评估
 - **HTTP响应检查**：支持重定向跟踪和详细响应分析
+- **🆕 HTTP头增强解析**：源站信息提取、CDN检测、安全头分析
 - **ICMP探测**：跨平台ping测试，RTT统计和丢包率分析
+- **🆕 ICMP多IP拨测**：并行测试所有DNS解析的IP，性能对比分析
 - **网络路径追踪**：mtr优先，包含ASN信息和丢包统计
+- **🆕 MTR多IP拨测**：并行路径追踪，共同跳点分析，路径对比
 - **公网IP信息**：多服务商容错的地理位置信息收集
 
 #### 配置和控制特性
@@ -1236,6 +1383,35 @@ def calculate_timeout(target_type: str) -> int:
 - **环境变量配置**：完整的十二要素应用支持
 - **并发控制**：可配置的并发数和超时控制
 - **错误恢复**：完善的异常处理和重试机制
+
+#### 🆕 功能增强特性
+
+##### HTTP头信息增强解析
+- **源站信息提取**：自动识别X-Real-IP、X-Forwarded-For等头信息
+- **CDN检测**：智能识别Cloudflare、AWS CloudFront、Azure CDN等
+- **安全头分析**：X-Frame-Options、CSP、HSTS等安全头检测
+- **性能头分析**：Cache-Control、ETag、压缩等性能相关头
+- **IP地址提取**：从多种HTTP头中提取可能的源站IP
+
+##### ICMP多IP拨测
+- **并行测试策略**：对DNS解析的所有IP进行并行ping测试
+- **性能对比分析**：自动识别最佳性能的IP地址
+- **统计汇总**：成功率、RTT分布、丢包率统计
+- **智能切换**：单IP使用传统逻辑，多IP自动启用并行测试
+- **向后兼容**：保持现有单IP测试接口不变
+
+##### MTR多IP拨测
+- **并行路径追踪**：对所有IP地址进行并行网络路径追踪
+- **路径对比分析**：识别共同跳点和路径差异
+- **性能统计**：最短路径、最快路径、平均跳数等指标
+- **网络拓扑分析**：路径多样性和网络基础设施识别
+- **质量评估**：基于多路径数据的网络质量评估
+
+##### 智能逻辑切换
+- **自动检测**：根据DNS解析结果自动选择测试策略
+- **数据兼容**：新功能作为可选字段，不影响现有数据结构
+- **性能优化**：并行执行提高多IP场景的测试效率
+- **错误隔离**：单个IP测试失败不影响其他IP的测试
 
 ### 7.4 扩展方向
 

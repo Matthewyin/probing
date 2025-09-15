@@ -1,6 +1,6 @@
 # 网络诊断工具
 
-> 一个专业的网络连接性和性能分析工具，支持TCP、TLS、HTTP诊断和网络路径追踪
+> 一个专业的网络连接性和性能分析工具，支持TCP、TLS、HTTP诊断、网络路径追踪和多IP并行测试
 
 ## 🚀 快速开始
 
@@ -48,6 +48,9 @@ uv run python scheduler_main.py -c input/targets_sample.yaml           # 启动�
 | 🛣️ **网络路径追踪** | 追踪网络路径 | 跳点信息、延迟统计、丢包率 |
 | 📊 **批量诊断** | 同时诊断多个目标 | 汇总统计、性能分析、安全评估 |
 | ⏰ **定时任务** | 定时执行批量诊断 | 自动调度、配置热重载、历史记录 |
+| 🆕 **HTTP头增强解析** | 提取源站信息和CDN检测 | 源站IP、CDN提供商、安全头分析 |
+| 🆕 **ICMP多IP拨测** | 并行测试所有DNS解析的IP | 多IP性能对比、最佳IP识别 |
+| 🆕 **MTR多IP拨测** | 并行路径追踪和路径对比 | 共同跳点、路径差异、性能分析 |
 
 ## 📋 系统要求
 
@@ -105,7 +108,7 @@ global_settings:
 
 ## 📊 输出格式
 
-### JSON诊断报告
+### 增强功能JSON诊断报告
 
 ```json
 {
@@ -121,9 +124,32 @@ global_settings:
     "protocol_version": "TLSv1.3",
     "cipher_suite": "TLS_AES_256_GCM_SHA384"
   },
-  "http_info": {
+  "http_response": {
     "status_code": 200,
-    "response_time_ms": 234.56
+    "response_time_ms": 234.56,
+    "origin_info": {
+      "real_ip": "192.168.1.100",
+      "cdn_provider": "cloudflare",
+      "possible_origin_ips": ["192.168.1.100"]
+    },
+    "header_analysis": {
+      "security_headers": {"x-frame-options": "DENY"},
+      "custom_headers_count": 5
+    }
+  },
+  "multi_ip_icmp": {
+    "tested_ips": ["1.2.3.4", "5.6.7.8"],
+    "summary": {
+      "success_rate": 1.0,
+      "best_performing_ip": "1.2.3.4"
+    }
+  },
+  "multi_ip_network_path": {
+    "tested_ips": ["1.2.3.4", "5.6.7.8"],
+    "summary": {
+      "common_hops": ["192.168.1.1"],
+      "unique_paths": 2
+    }
   }
 }
 ```
@@ -149,13 +175,33 @@ global_settings:
 ================================================================================
 ```
 
+## 🆕 功能增强亮点
+
+### HTTP头信息增强解析
+- **源站信息提取**：自动识别X-Real-IP、X-Forwarded-For等头信息
+- **CDN检测**：智能识别Cloudflare、AWS CloudFront、Azure CDN等提供商
+- **安全头分析**：分析X-Frame-Options、CSP等安全相关头信息
+- **性能头分析**：Cache-Control、ETag等缓存和性能相关头信息
+
+### ICMP多IP拨测
+- **并行测试**：对DNS解析的所有IP地址进行并行ping测试
+- **性能对比**：自动识别最佳性能的IP地址
+- **统计分析**：提供详细的RTT统计和丢包率分析
+- **智能切换**：单IP域名使用传统逻辑，多IP域名自动启用并行测试
+
+### MTR多IP拨测
+- **并行路径追踪**：对所有IP地址进行并行网络路径追踪
+- **路径对比分析**：识别共同跳点和路径差异
+- **性能统计**：提供最短路径、最快路径等统计信息
+- **向后兼容**：保持现有单IP测试逻辑不变
+
 ## 📚 文档
 
 | 文档 | 描述 |
 |------|------|
 | [用户手册](network-diagnosis/doc/USER_MANUAL.md) | 详细的使用指南和最佳实践 |
 | [架构文档](network-diagnosis/doc/ARCHITECTURE.md) | 技术架构和设计原理 |
-| [功能实现文档](network-diagnosis/doc/) | 各功能模块的详细实现文档 |
+| [功能增强说明](network-diagnosis/ENHANCEMENTS.md) | 新增功能的详细说明 |
 
 ## 🔧 环境配置
 

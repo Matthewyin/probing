@@ -124,22 +124,58 @@ class NetworkDiagnosisCoordinator:
                 logger.info("Performing ICMP ping test...")
                 # 使用解析后的域名或原始域名
                 target_domain = getattr(request, 'parsed_domain', None) or request.domain
-                icmp_result = await self.icmp_service.ping(target_domain)
-                result.icmp_info = icmp_result
 
-                if not icmp_result or not icmp_result.is_successful:
-                    error_messages.append("ICMP ping test failed")
+                # 统一使用多IP逻辑（单IP是多IP的特例）
+                if dns_result.is_successful and dns_result.resolved_ips:
+                    ip_count = len(dns_result.resolved_ips)
+                    logger.info(f"Performing ICMP test for {ip_count} IP{'s' if ip_count > 1 else ''}")
+
+                    # 统一的多IP ICMP测试（单IP时列表长度为1）
+                    multi_icmp_result = await self.icmp_service.ping_multiple_ips(target_domain, dns_result.resolved_ips)
+                    result.multi_ip_icmp = multi_icmp_result
+
+                    # 向后兼容：从多IP结果中提取primary_ip结果
+                    if dns_result.primary_ip and dns_result.primary_ip in multi_icmp_result.icmp_results:
+                        result.icmp_info = multi_icmp_result.icmp_results[dns_result.primary_ip]
+
+                    # 检查测试是否成功
+                    if not multi_icmp_result or multi_icmp_result.summary.successful_ips == 0:
+                        error_messages.append("All ICMP ping tests failed")
+                    elif multi_icmp_result.summary.failed_ips > 0:
+                        error_messages.append(f"Some ICMP ping tests failed ({multi_icmp_result.summary.failed_ips}/{multi_icmp_result.summary.total_ips})")
+                else:
+                    # DNS解析失败时的fallback
+                    logger.warning("DNS resolution failed, skipping ICMP test")
+                    error_messages.append("ICMP ping test skipped due to DNS resolution failure")
 
             # 6. 网络路径追踪
             if request.include_trace:
                 logger.info("Performing network path trace...")
                 # 使用解析后的域名或原始域名
                 target_domain = getattr(request, 'parsed_domain', None) or request.domain
-                path_result = await self.path_service.trace_path(target_domain)
-                result.network_path = path_result
 
-                if not path_result:
-                    error_messages.append("Network path trace failed")
+                # 统一使用多IP逻辑（单IP是多IP的特例）
+                if dns_result.is_successful and dns_result.resolved_ips:
+                    ip_count = len(dns_result.resolved_ips)
+                    logger.info(f"Performing network path trace for {ip_count} IP{'s' if ip_count > 1 else ''}")
+
+                    # 统一的多IP网络路径追踪（单IP时列表长度为1）
+                    multi_path_result = await self.path_service.trace_multiple_ips(target_domain, dns_result.resolved_ips)
+                    result.multi_ip_network_path = multi_path_result
+
+                    # 向后兼容：从多IP结果中提取primary_ip结果
+                    if dns_result.primary_ip and dns_result.primary_ip in multi_path_result.path_results:
+                        result.network_path = multi_path_result.path_results[dns_result.primary_ip]
+
+                    # 检查测试是否成功
+                    if not multi_path_result or multi_path_result.summary.successful_traces == 0:
+                        error_messages.append("All network path traces failed")
+                    elif multi_path_result.summary.failed_traces > 0:
+                        error_messages.append(f"Some network path traces failed ({multi_path_result.summary.failed_traces}/{multi_path_result.summary.total_ips})")
+                else:
+                    # DNS解析失败时的fallback
+                    logger.warning("DNS resolution failed, skipping network path trace")
+                    error_messages.append("Network path trace skipped due to DNS resolution failure")
 
             # 计算总诊断时间
             total_time = (time.time() - start_time) * 1000

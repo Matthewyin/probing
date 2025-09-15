@@ -814,22 +814,206 @@ class HTTPService:
 
                 logger.info(f"HTTP request completed in {response_time:.2f}ms with status {response.status_code}")
 
+                # 解析HTTP头信息
+                headers_dict = dict(response.headers)
+                origin_info = self._parse_origin_info(headers_dict)
+                header_analysis = self._analyze_headers(headers_dict)
+
                 return HTTPResponseInfo(
                     status_code=response.status_code,
                     reason_phrase=response.reason_phrase,
-                    headers=dict(response.headers),
+                    headers=headers_dict,
                     response_time_ms=response_time,
                     content_length=len(response.content) if response.content else None,
                     content_type=response.headers.get('content-type'),
                     server=response.headers.get('server'),
                     redirect_count=redirect_count,
-                    final_url=str(response.url)
+                    final_url=str(response.url),
+                    origin_info=origin_info,
+                    header_analysis=header_analysis
                 )
 
         except Exception as e:
             response_time = (time.time() - start_time) * 1000
             logger.error(f"HTTP request failed: {str(e)}")
             return None
+
+    def _parse_origin_info(self, headers: Dict[str, str]) -> Optional['OriginServerInfo']:
+        """解析源站信息"""
+        from .models import OriginServerInfo
+        import re
+
+        # 提取各种源站相关的头信息
+        real_ip = headers.get('x-real-ip')
+        original_ip = headers.get('x-original-ip')
+        source_ip = headers.get('x-source-ip')
+        client_ip = headers.get('x-client-ip')
+
+        # 解析X-Forwarded-For
+        forwarded_for_raw = headers.get('x-forwarded-for')
+        forwarded_for = None
+        if forwarded_for_raw:
+            # 分割并清理IP地址
+            forwarded_for = [ip.strip() for ip in forwarded_for_raw.split(',') if ip.strip()]
+
+        # 后端服务器信息
+        backend_server = headers.get('x-backend-server')
+        upstream_server = headers.get('x-upstream-server')
+        server_name = headers.get('x-server-name')
+
+        # CDN和缓存信息
+        cache_status = headers.get('x-cache') or headers.get('cache-status')
+        cdn_provider = self._detect_cdn_provider(headers)
+        edge_location = headers.get('x-edge-location') or headers.get('cf-ray')
+
+        # 解析Via头
+        via_raw = headers.get('via')
+        via_chain = None
+        if via_raw:
+            # 简单解析Via头，提取代理信息
+            via_chain = [via.strip() for via in via_raw.split(',') if via.strip()]
+
+        # 服务器技术栈
+        powered_by = headers.get('x-powered-by')
+
+        # 提取所有可能的源站IP
+        possible_origin_ips = self._extract_possible_origin_ips(headers)
+
+        # 如果没有任何源站相关信息，返回None
+        if not any([real_ip, original_ip, source_ip, client_ip, forwarded_for,
+                   backend_server, upstream_server, cache_status, via_chain, powered_by]):
+            return None
+
+        return OriginServerInfo(
+            real_ip=real_ip,
+            original_ip=original_ip,
+            source_ip=source_ip,
+            client_ip=client_ip,
+            forwarded_for=forwarded_for,
+            forwarded_for_raw=forwarded_for_raw,
+            backend_server=backend_server,
+            upstream_server=upstream_server,
+            server_name=server_name,
+            cache_status=cache_status,
+            cdn_provider=cdn_provider,
+            edge_location=edge_location,
+            via_chain=via_chain,
+            via_raw=via_raw,
+            powered_by=powered_by,
+            possible_origin_ips=possible_origin_ips
+        )
+
+    def _analyze_headers(self, headers: Dict[str, str]) -> 'HTTPHeaderAnalysis':
+        """分析HTTP头"""
+        from .models import HTTPHeaderAnalysis
+
+        security_headers = {}
+        performance_headers = {}
+        custom_headers = {}
+
+        # 安全相关头
+        security_header_names = {
+            'strict-transport-security', 'x-frame-options', 'x-content-type-options',
+            'x-xss-protection', 'content-security-policy', 'referrer-policy',
+            'permissions-policy', 'cross-origin-embedder-policy', 'cross-origin-opener-policy'
+        }
+
+        # 性能相关头
+        performance_header_names = {
+            'cache-control', 'expires', 'etag', 'last-modified', 'x-cache',
+            'cache-status', 'age', 'vary', 'x-cache-hits'
+        }
+
+        for name, value in headers.items():
+            name_lower = name.lower()
+
+            if name_lower in security_header_names:
+                security_headers[name_lower] = value
+            elif name_lower in performance_header_names:
+                performance_headers[name_lower] = value
+            elif name_lower.startswith('x-') or name_lower.startswith('cf-'):
+                custom_headers[name_lower] = value
+
+        return HTTPHeaderAnalysis(
+            security_headers=security_headers,
+            performance_headers=performance_headers,
+            custom_headers=custom_headers,
+            total_headers_count=len(headers),
+            custom_headers_count=len(custom_headers)
+        )
+
+    def _detect_cdn_provider(self, headers: Dict[str, str]) -> Optional[str]:
+        """检测CDN提供商"""
+        # 检查常见的CDN特征头
+        if 'cf-ray' in headers or 'cf-cache-status' in headers:
+            return 'cloudflare'
+        elif 'x-amz-cf-id' in headers or 'x-amz-cf-pop' in headers:
+            return 'amazon_cloudfront'
+        elif 'x-azure-ref' in headers:
+            return 'azure_cdn'
+        elif 'x-fastly-request-id' in headers:
+            return 'fastly'
+        elif 'x-akamai-edgescape' in headers or 'akamai-origin-hop' in headers:
+            return 'akamai'
+        elif 'x-cdn' in headers:
+            cdn_value = headers['x-cdn'].lower()
+            if 'cloudflare' in cdn_value:
+                return 'cloudflare'
+            elif 'fastly' in cdn_value:
+                return 'fastly'
+
+        # 检查Server头中的CDN信息
+        server = headers.get('server', '').lower()
+        if 'cloudflare' in server:
+            return 'cloudflare'
+        elif 'fastly' in server:
+            return 'fastly'
+
+        return None
+
+    def _extract_possible_origin_ips(self, headers: Dict[str, str]) -> List[str]:
+        """从各种头中提取可能的源站IP地址"""
+        import re
+
+        possible_ips = []
+        ip_pattern = re.compile(r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b')
+
+        # 检查各种可能包含IP的头
+        ip_headers = [
+            'x-real-ip', 'x-original-ip', 'x-source-ip', 'x-client-ip',
+            'x-forwarded-for', 'x-backend-server', 'x-upstream-server'
+        ]
+
+        for header_name in ip_headers:
+            header_value = headers.get(header_name)
+            if header_value:
+                # 提取所有IP地址
+                ips = ip_pattern.findall(header_value)
+                for ip in ips:
+                    # 简单验证IP地址（排除明显的内网地址）
+                    if self._is_valid_public_ip(ip) and ip not in possible_ips:
+                        possible_ips.append(ip)
+
+        return possible_ips
+
+    def _is_valid_public_ip(self, ip: str) -> bool:
+        """检查是否为有效的公网IP地址"""
+        try:
+            parts = [int(part) for part in ip.split('.')]
+            if len(parts) != 4 or any(part < 0 or part > 255 for part in parts):
+                return False
+
+            # 排除私有IP地址范围
+            if (parts[0] == 10 or
+                (parts[0] == 172 and 16 <= parts[1] <= 31) or
+                (parts[0] == 192 and parts[1] == 168) or
+                parts[0] == 127 or  # 回环地址
+                parts[0] == 0):     # 无效地址
+                return False
+
+            return True
+        except (ValueError, IndexError):
+            return False
 
 
 class NetworkPathService:
@@ -1023,6 +1207,259 @@ class NetworkPathService:
             avg_latency_ms=avg_latency,
             packet_loss_percent=0.0
         )
+
+    async def trace_multiple_ips(self, domain: str, ip_list: List[str]) -> 'MultiIPNetworkPathInfo':
+        """对多个IP进行并行网络路径追踪"""
+        from .models import MultiIPNetworkPathInfo, PathSummary
+
+        logger.info(f"Starting multi-IP network path trace to {domain} with {len(ip_list)} IPs: {ip_list}")
+        start_time = time.time()
+
+        # 创建并发任务
+        tasks = []
+        for ip in ip_list:
+            task = asyncio.create_task(self.trace_ip_directly(ip))
+            tasks.append((ip, task))
+
+        # 等待所有任务完成
+        results = {}
+        for ip, task in tasks:
+            try:
+                result = await task
+                results[ip] = result
+                if result:
+                    logger.info(f"Network path trace to {ip} successful: {result.total_hops} hops")
+                else:
+                    logger.warning(f"Network path trace to {ip} failed")
+            except Exception as e:
+                logger.error(f"Network path trace to {ip} failed with exception: {str(e)}")
+                results[ip] = None
+
+        total_execution_time = (time.time() - start_time) * 1000
+
+        # 创建汇总统计
+        summary = self._create_path_summary(results)
+
+        # 确定使用的追踪方法（优先mtr）
+        trace_method = "mtr"
+        for result in results.values():
+            if result and result.trace_method:
+                trace_method = result.trace_method
+                break
+
+        return MultiIPNetworkPathInfo(
+            target_domain=domain,
+            tested_ips=ip_list,
+            path_results=results,
+            summary=summary,
+            total_execution_time_ms=total_execution_time,
+            concurrent_execution=True,
+            trace_method=trace_method
+        )
+
+    async def trace_ip_directly(self, ip: str) -> Optional[NetworkPathInfo]:
+        """直接追踪指定IP地址的网络路径"""
+        logger.debug(f"Starting direct network path trace to IP {ip}")
+
+        # 首先尝试使用mtr
+        result = await self._trace_with_mtr_direct(ip)
+        if result:
+            return result
+
+        # 如果mtr失败，使用traceroute
+        return await self._trace_with_traceroute_direct(ip)
+
+    async def _trace_with_mtr_direct(self, ip: str) -> Optional[NetworkPathInfo]:
+        """使用mtr直接追踪IP地址"""
+        try:
+            # 构建mtr命令 - 直接使用IP地址
+            cmd = ['sudo', 'mtr', '-rwc', '5', '-f', '1', '-n', '-i', '1', '-4', '-z', '--json', ip]
+            logger.debug(f"Executing direct mtr command: {' '.join(cmd)}")
+
+            # 执行命令
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+
+            # 等待命令完成，设置超时
+            try:
+                stdout, stderr = await asyncio.wait_for(
+                    process.communicate(),
+                    timeout=300.0
+                )
+            except asyncio.TimeoutError:
+                logger.warning(f"Direct mtr command timed out for {ip}")
+                process.kill()
+                return None
+
+            if process.returncode == 0:
+                # 解析mtr JSON输出
+                output = stdout.decode('utf-8', errors='ignore')
+                try:
+                    mtr_data = json.loads(output)
+                    return self._parse_mtr_output(mtr_data, ip)
+                except json.JSONDecodeError as e:
+                    logger.error(f"Failed to parse mtr JSON output for {ip}: {str(e)}")
+                    return None
+            else:
+                error_output = stderr.decode('utf-8', errors='ignore')
+                logger.warning(f"Direct mtr to {ip} failed: {error_output}")
+                return None
+
+        except Exception as e:
+            logger.error(f"Direct mtr to {ip} failed: {str(e)}")
+            return None
+
+    async def _trace_with_traceroute_direct(self, ip: str) -> Optional[NetworkPathInfo]:
+        """使用traceroute直接追踪IP地址"""
+        try:
+            # 构建traceroute命令 - 直接使用IP地址
+            cmd = ['traceroute', '-n', '-w', '3', '-q', '3', '-m', '30', ip]
+            logger.debug(f"Executing direct traceroute command: {' '.join(cmd)}")
+
+            # 执行命令
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+
+            # 等待命令完成，设置超时
+            try:
+                stdout, stderr = await asyncio.wait_for(
+                    process.communicate(),
+                    timeout=300.0
+                )
+            except asyncio.TimeoutError:
+                logger.warning(f"Direct traceroute command timed out for {ip}")
+                process.kill()
+                return None
+
+            if process.returncode == 0:
+                # 解析traceroute输出
+                output = stdout.decode('utf-8', errors='ignore')
+                return self._parse_traceroute_output(output, ip)
+            else:
+                error_output = stderr.decode('utf-8', errors='ignore')
+                logger.warning(f"Direct traceroute to {ip} failed: {error_output}")
+                return None
+
+        except Exception as e:
+            logger.error(f"Direct traceroute to {ip} failed: {str(e)}")
+            return None
+
+    def _create_path_summary(self, results: Dict[str, Optional[NetworkPathInfo]]) -> 'PathSummary':
+        """创建网络路径追踪汇总统计"""
+        from .models import PathSummary
+
+        total_ips = len(results)
+        successful_results = [r for r in results.values() if r is not None]
+        successful_traces = len(successful_results)
+        failed_traces = total_ips - successful_traces
+        success_rate = successful_traces / total_ips if total_ips > 0 else 0.0
+
+        # 计算路径统计
+        avg_hops = None
+        min_hops = None
+        max_hops = None
+        avg_latency_ms = None
+        min_latency_ms = None
+        max_latency_ms = None
+        fastest_ip = None
+        shortest_path_ip = None
+
+        if successful_results:
+            # 计算跳数统计
+            hop_counts = [r.total_hops for r in successful_results if r.total_hops > 0]
+            if hop_counts:
+                avg_hops = sum(hop_counts) / len(hop_counts)
+                min_hops = min(hop_counts)
+                max_hops = max(hop_counts)
+
+                # 找到跳数最少的IP
+                for ip, result in results.items():
+                    if result and result.total_hops == min_hops:
+                        shortest_path_ip = ip
+                        break
+
+            # 计算延迟统计
+            latencies = [r.avg_latency_ms for r in successful_results if r.avg_latency_ms is not None]
+            if latencies:
+                avg_latency_ms = sum(latencies) / len(latencies)
+                min_latency_ms = min(latencies)
+                max_latency_ms = max(latencies)
+
+                # 找到延迟最低的IP
+                for ip, result in results.items():
+                    if result and result.avg_latency_ms == min_latency_ms:
+                        fastest_ip = ip
+                        break
+
+        # 分析共同跳点
+        common_hops = self._find_common_hops(successful_results)
+
+        # 计算不同路径数量
+        unique_paths = self._count_unique_paths(successful_results)
+
+        return PathSummary(
+            total_ips=total_ips,
+            successful_traces=successful_traces,
+            failed_traces=failed_traces,
+            success_rate=success_rate,
+            avg_hops=avg_hops,
+            min_hops=min_hops,
+            max_hops=max_hops,
+            avg_latency_ms=avg_latency_ms,
+            min_latency_ms=min_latency_ms,
+            max_latency_ms=max_latency_ms,
+            common_hops=common_hops,
+            unique_paths=unique_paths,
+            fastest_ip=fastest_ip,
+            shortest_path_ip=shortest_path_ip
+        )
+
+    def _find_common_hops(self, results: List[NetworkPathInfo]) -> List[str]:
+        """找到所有路径中的共同跳点"""
+        if not results:
+            return []
+
+        # 获取第一个结果的跳点作为基准
+        if not results[0].hops:
+            return []
+
+        common_ips = set()
+        for hop in results[0].hops:
+            if hop.ip_address:
+                common_ips.add(hop.ip_address)
+
+        # 与其他结果求交集
+        for result in results[1:]:
+            if not result.hops:
+                common_ips.clear()
+                break
+
+            result_ips = {hop.ip_address for hop in result.hops if hop.ip_address}
+            common_ips &= result_ips
+
+        return list(common_ips)
+
+    def _count_unique_paths(self, results: List[NetworkPathInfo]) -> int:
+        """计算不同路径的数量"""
+        if not results:
+            return 0
+
+        # 使用路径签名来识别不同的路径
+        path_signatures = set()
+
+        for result in results:
+            if result.hops:
+                # 创建路径签名（使用跳点IP序列）
+                signature = tuple(hop.ip_address for hop in result.hops if hop.ip_address)
+                path_signatures.add(signature)
+
+        return len(path_signatures)
 
 
 class PublicIPService:
@@ -1386,4 +1823,145 @@ class ICMPService:
             execution_time_ms=execution_time,
             is_successful=False,
             error_message=error_msg
+        )
+
+    async def ping_multiple_ips(self, domain: str, ip_list: List[str]) -> 'MultiIPICMPInfo':
+        """对多个IP进行并行ICMP测试"""
+        from .models import MultiIPICMPInfo, ICMPSummary
+
+        logger.info(f"Starting multi-IP ICMP ping to {domain} with {len(ip_list)} IPs: {ip_list}")
+        start_time = time.time()
+
+        # 创建并发任务
+        tasks = []
+        for ip in ip_list:
+            task = asyncio.create_task(self.ping_ip_directly(ip))
+            tasks.append((ip, task))
+
+        # 等待所有任务完成
+        results = {}
+        for ip, task in tasks:
+            try:
+                result = await task
+                results[ip] = result
+                if result and result.is_successful:
+                    logger.info(f"ICMP ping to {ip} successful: {result.avg_rtt_ms:.2f}ms avg RTT")
+                else:
+                    logger.warning(f"ICMP ping to {ip} failed")
+            except Exception as e:
+                logger.error(f"ICMP ping to {ip} failed with exception: {str(e)}")
+                # 创建失败结果
+                results[ip] = self._create_error_result(ip, [], 0, str(e))
+
+        total_execution_time = (time.time() - start_time) * 1000
+
+        # 创建汇总统计
+        summary = self._create_icmp_summary(results)
+
+        return MultiIPICMPInfo(
+            target_domain=domain,
+            tested_ips=ip_list,
+            icmp_results=results,
+            summary=summary,
+            total_execution_time_ms=total_execution_time,
+            concurrent_execution=True
+        )
+
+    async def ping_ip_directly(self, ip: str) -> Optional[ICMPInfo]:
+        """直接ping指定IP地址"""
+        logger.debug(f"Starting direct ICMP ping to IP {ip}")
+        start_time = time.time()
+
+        try:
+            # 构建ping命令（直接使用IP地址）
+            ping_cmd = self._build_ping_command(ip)
+
+            # 执行ping命令
+            process = await asyncio.create_subprocess_exec(
+                *ping_cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+
+            # 等待命令完成，设置超时
+            try:
+                stdout, stderr = await asyncio.wait_for(
+                    process.communicate(),
+                    timeout=self.timeout_ms / 1000 + 15  # 额外15秒缓冲
+                )
+            except asyncio.TimeoutError:
+                logger.warning(f"Direct ping command timed out for {ip}")
+                process.kill()
+                return self._create_timeout_result(ip, ping_cmd)
+
+            execution_time = (time.time() - start_time) * 1000
+
+            if process.returncode == 0:
+                # 解析ping输出
+                output = stdout.decode('utf-8', errors='ignore')
+                return self._parse_ping_output(output, ip, ping_cmd, execution_time)
+            else:
+                # ping失败
+                error_output = stderr.decode('utf-8', errors='ignore')
+                logger.warning(f"Direct ping to {ip} failed with return code {process.returncode}: {error_output}")
+                return self._create_error_result(ip, ping_cmd, execution_time, error_output)
+
+        except Exception as e:
+            execution_time = (time.time() - start_time) * 1000
+            logger.error(f"Direct ping to {ip} failed: {str(e)}")
+            return self._create_error_result(ip, [], execution_time, str(e))
+
+    def _create_icmp_summary(self, results: Dict[str, Optional[ICMPInfo]]) -> 'ICMPSummary':
+        """创建ICMP测试汇总统计"""
+        from .models import ICMPSummary
+
+        total_ips = len(results)
+        successful_results = [r for r in results.values() if r and r.is_successful]
+        successful_ips = len(successful_results)
+        failed_ips = total_ips - successful_ips
+        success_rate = successful_ips / total_ips if total_ips > 0 else 0.0
+
+        # 计算整体性能统计
+        avg_rtt_ms = None
+        min_rtt_ms = None
+        max_rtt_ms = None
+        best_performing_ip = None
+        worst_performing_ip = None
+
+        if successful_results:
+            # 计算平均RTT
+            valid_rtts = [r.avg_rtt_ms for r in successful_results if r.avg_rtt_ms is not None]
+            if valid_rtts:
+                avg_rtt_ms = sum(valid_rtts) / len(valid_rtts)
+                min_rtt_ms = min(valid_rtts)
+                max_rtt_ms = max(valid_rtts)
+
+                # 找到性能最佳和最差的IP
+                for ip, result in results.items():
+                    if result and result.is_successful and result.avg_rtt_ms is not None:
+                        if result.avg_rtt_ms == min_rtt_ms:
+                            best_performing_ip = ip
+                        if result.avg_rtt_ms == max_rtt_ms:
+                            worst_performing_ip = ip
+
+        # 计算整体丢包统计
+        total_packets_sent = sum(r.packets_sent for r in results.values() if r)
+        total_packets_received = sum(r.packets_received for r in results.values() if r)
+        overall_packet_loss_percent = 0.0
+        if total_packets_sent > 0:
+            overall_packet_loss_percent = ((total_packets_sent - total_packets_received) / total_packets_sent) * 100
+
+        return ICMPSummary(
+            total_ips=total_ips,
+            successful_ips=successful_ips,
+            failed_ips=failed_ips,
+            success_rate=success_rate,
+            avg_rtt_ms=avg_rtt_ms,
+            min_rtt_ms=min_rtt_ms,
+            max_rtt_ms=max_rtt_ms,
+            best_performing_ip=best_performing_ip,
+            worst_performing_ip=worst_performing_ip,
+            total_packets_sent=total_packets_sent,
+            total_packets_received=total_packets_received,
+            overall_packet_loss_percent=overall_packet_loss_percent
         )

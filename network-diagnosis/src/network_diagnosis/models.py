@@ -86,6 +86,57 @@ class TLSInfo(BaseModel):
     handshake_time_ms: float = Field(..., description="TLS握手时间（毫秒）")
 
 
+class OriginServerInfo(BaseModel):
+    """源站服务器信息（从HTTP响应头解析）"""
+
+    # 源站IP相关
+    real_ip: Optional[str] = Field(None, description="X-Real-IP头的值")
+    original_ip: Optional[str] = Field(None, description="X-Original-IP头的值")
+    source_ip: Optional[str] = Field(None, description="X-Source-IP头的值")
+    client_ip: Optional[str] = Field(None, description="X-Client-IP头的值")
+
+    # 转发链路信息
+    forwarded_for: Optional[List[str]] = Field(None, description="X-Forwarded-For解析后的IP列表")
+    forwarded_for_raw: Optional[str] = Field(None, description="X-Forwarded-For原始值")
+
+    # 后端服务器信息
+    backend_server: Optional[str] = Field(None, description="X-Backend-Server头的值")
+    upstream_server: Optional[str] = Field(None, description="X-Upstream-Server头的值")
+    server_name: Optional[str] = Field(None, description="X-Server-Name头的值")
+
+    # CDN和缓存信息
+    cache_status: Optional[str] = Field(None, description="X-Cache头的值")
+    cdn_provider: Optional[str] = Field(None, description="CDN提供商信息")
+    edge_location: Optional[str] = Field(None, description="边缘节点位置")
+
+    # 代理链路信息
+    via_chain: Optional[List[str]] = Field(None, description="Via头解析后的代理链")
+    via_raw: Optional[str] = Field(None, description="Via头原始值")
+
+    # 服务器技术栈
+    powered_by: Optional[str] = Field(None, description="X-Powered-By头的值")
+
+    # 提取的可能源站IP列表
+    possible_origin_ips: Optional[List[str]] = Field(None, description="从各种头中提取的可能源站IP")
+
+
+class HTTPHeaderAnalysis(BaseModel):
+    """HTTP头分析结果"""
+
+    # 安全相关头
+    security_headers: Dict[str, str] = Field(default_factory=dict, description="安全相关的HTTP头")
+
+    # 性能相关头
+    performance_headers: Dict[str, str] = Field(default_factory=dict, description="性能相关的HTTP头")
+
+    # 自定义头统计
+    custom_headers: Dict[str, str] = Field(default_factory=dict, description="自定义的HTTP头（X-开头等）")
+
+    # 头信息统计
+    total_headers_count: int = Field(0, description="响应头总数")
+    custom_headers_count: int = Field(0, description="自定义头数量")
+
+
 class HTTPResponseInfo(BaseModel):
     """HTTP响应信息"""
     status_code: int
@@ -97,6 +148,10 @@ class HTTPResponseInfo(BaseModel):
     server: Optional[str] = None
     redirect_count: int = 0
     final_url: str
+
+    # 新增字段：HTTP头增强解析结果
+    origin_info: Optional[OriginServerInfo] = Field(None, description="源站信息解析结果")
+    header_analysis: Optional[HTTPHeaderAnalysis] = Field(None, description="HTTP头分析结果")
 
 
 class TraceRouteHop(BaseModel):
@@ -152,6 +207,87 @@ class ICMPInfo(BaseModel):
     error_message: Optional[str] = Field(None, description="错误信息")
 
 
+class ICMPSummary(BaseModel):
+    """ICMP测试汇总统计"""
+    total_ips: int = Field(..., description="测试的IP总数")
+    successful_ips: int = Field(..., description="成功的IP数量")
+    failed_ips: int = Field(..., description="失败的IP数量")
+    success_rate: float = Field(..., description="成功率（0-1）")
+
+    # 整体性能统计
+    avg_rtt_ms: Optional[float] = Field(None, description="所有成功IP的平均RTT")
+    min_rtt_ms: Optional[float] = Field(None, description="所有IP中的最小RTT")
+    max_rtt_ms: Optional[float] = Field(None, description="所有IP中的最大RTT")
+
+    # 最佳性能IP
+    best_performing_ip: Optional[str] = Field(None, description="性能最佳的IP地址")
+    worst_performing_ip: Optional[str] = Field(None, description="性能最差的IP地址")
+
+    # 整体丢包统计
+    total_packets_sent: int = Field(0, description="总发送包数")
+    total_packets_received: int = Field(0, description="总接收包数")
+    overall_packet_loss_percent: float = Field(0.0, description="整体丢包率")
+
+
+class MultiIPICMPInfo(BaseModel):
+    """多IP ICMP测试结果"""
+    target_domain: str = Field(..., description="目标域名")
+    tested_ips: List[str] = Field(..., description="测试的IP地址列表")
+
+    # 每个IP的详细测试结果
+    icmp_results: Dict[str, Optional[ICMPInfo]] = Field(default_factory=dict, description="IP地址到ICMP结果的映射")
+
+    # 汇总统计信息
+    summary: ICMPSummary = Field(..., description="ICMP测试汇总统计")
+
+    # 执行信息
+    total_execution_time_ms: float = Field(..., description="所有IP测试的总执行时间")
+    concurrent_execution: bool = Field(True, description="是否并发执行")
+
+
+class PathSummary(BaseModel):
+    """网络路径追踪汇总统计"""
+    total_ips: int = Field(..., description="测试的IP总数")
+    successful_traces: int = Field(..., description="成功追踪的IP数量")
+    failed_traces: int = Field(..., description="失败追踪的IP数量")
+    success_rate: float = Field(..., description="成功率（0-1）")
+
+    # 路径统计
+    avg_hops: Optional[float] = Field(None, description="平均跳数")
+    min_hops: Optional[int] = Field(None, description="最少跳数")
+    max_hops: Optional[int] = Field(None, description="最多跳数")
+
+    # 延迟统计
+    avg_latency_ms: Optional[float] = Field(None, description="平均延迟")
+    min_latency_ms: Optional[float] = Field(None, description="最小延迟")
+    max_latency_ms: Optional[float] = Field(None, description="最大延迟")
+
+    # 路径分析
+    common_hops: List[str] = Field(default_factory=list, description="共同经过的跳点IP")
+    unique_paths: int = Field(0, description="不同路径的数量")
+
+    # 最佳性能IP
+    fastest_ip: Optional[str] = Field(None, description="延迟最低的IP地址")
+    shortest_path_ip: Optional[str] = Field(None, description="跳数最少的IP地址")
+
+
+class MultiIPNetworkPathInfo(BaseModel):
+    """多IP网络路径追踪结果"""
+    target_domain: str = Field(..., description="目标域名")
+    tested_ips: List[str] = Field(..., description="测试的IP地址列表")
+
+    # 每个IP的详细路径追踪结果
+    path_results: Dict[str, Optional[NetworkPathInfo]] = Field(default_factory=dict, description="IP地址到路径追踪结果的映射")
+
+    # 汇总统计信息
+    summary: PathSummary = Field(..., description="路径追踪汇总统计")
+
+    # 执行信息
+    total_execution_time_ms: float = Field(..., description="所有IP测试的总执行时间")
+    concurrent_execution: bool = Field(True, description="是否并发执行")
+    trace_method: str = Field("mtr", description="使用的追踪方法")
+
+
 class PublicIPInfo(BaseModel):
     """公网IP信息"""
     ip: str = Field(..., description="公网IP地址")
@@ -184,9 +320,13 @@ class NetworkDiagnosisResult(BaseModel):
     tcp_connection: Optional[Union[TCPConnectionInfo, "EnhancedTCPConnectionInfo"]] = None
     tls_info: Optional[Union[TLSInfo, "EnhancedTLSInfo"]] = None
     http_response: Optional[Union[HTTPResponseInfo, "EnhancedHTTPResponseInfo"]] = None
-    network_path: Optional[NetworkPathInfo] = None
-    icmp_info: Optional[ICMPInfo] = None  # 新增：ICMP探测信息
+    network_path: Optional[NetworkPathInfo] = None  # 单IP网络路径信息（保持兼容性）
+    icmp_info: Optional[ICMPInfo] = None  # 单IP ICMP探测信息（保持兼容性）
     public_ip_info: Optional[PublicIPInfo] = None  # 发起端公网IP信息
+
+    # 多IP测试结果
+    multi_ip_icmp: Optional[MultiIPICMPInfo] = Field(None, description="多IP ICMP测试结果")
+    multi_ip_network_path: Optional[MultiIPNetworkPathInfo] = Field(None, description="多IP网络路径追踪结果")
 
     # 总体统计
     total_diagnosis_time_ms: float = Field(..., description="总诊断时间（毫秒）")
