@@ -237,6 +237,19 @@ class NetworkDiagnosisCoordinator:
             with open(filepath, 'w', encoding='utf-8') as f:
                 json.dump(result.to_json_dict(), f, indent=2, ensure_ascii=False)
 
+            # 🆕 裁剪重复数据
+            try:
+                from .json_trimmer import trim_json_file
+                success = trim_json_file(str(filepath), str(filepath))
+                if success:
+                    logger.debug(f"Successfully trimmed duplicates in {filepath}")
+                else:
+                    logger.warning(f"Failed to trim duplicates in {filepath}")
+            except ImportError:
+                logger.debug("JSON trimmer not available, skipping trimming")
+            except Exception as e:
+                logger.warning(f"JSON trimming error: {e}, keeping original file")
+
             logger.info(f"Diagnosis result saved to {filepath}")
             return str(filepath)
 
