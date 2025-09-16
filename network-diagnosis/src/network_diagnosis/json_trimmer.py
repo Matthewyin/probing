@@ -76,19 +76,25 @@ def trim_json_data(json_data: Dict[str, Any]) -> Dict[str, Any]:
     """
     # 创建数据副本，避免修改原数据
     trimmed_data = json_data.copy()
-    
+
+    # 检测并移除TCP重复数据
+    if _is_tcp_duplicate(json_data):
+        if 'tcp_connection' in trimmed_data:
+            del trimmed_data['tcp_connection']
+            logger.debug("Removed duplicate tcp_connection field")
+
     # 检测并移除ICMP重复数据
     if _is_icmp_duplicate(json_data):
         if 'icmp_info' in trimmed_data:
             del trimmed_data['icmp_info']
             logger.debug("Removed duplicate icmp_info field")
-    
+
     # 检测并移除MTR重复数据
     if _is_mtr_duplicate(json_data):
         if 'network_path' in trimmed_data:
             del trimmed_data['network_path']
             logger.debug("Removed duplicate network_path field")
-    
+
     return trimmed_data
 
 
@@ -199,6 +205,58 @@ def _is_mtr_duplicate(json_data: Dict[str, Any]) -> bool:
         return False
     
     logger.debug(f"MTR duplication detected for IP {primary_ip}")
+    return True
+
+
+def _is_tcp_duplicate(json_data: Dict[str, Any]) -> bool:
+    """
+    检测TCP数据是否重复
+
+    Args:
+        json_data: JSON数据
+
+    Returns:
+        bool: 是否存在重复
+    """
+    # 检查必要字段是否存在
+    if not ('tcp_connection' in json_data and json_data['tcp_connection']):
+        return False
+
+    if not ('multi_ip_tcp' in json_data and json_data['multi_ip_tcp']):
+        return False
+
+    # 获取primary_ip
+    primary_ip = json_data.get('target_ip')
+    if not primary_ip:
+        return False
+
+    # 检查multi_ip结果中是否有primary_ip的数据
+    multi_tcp = json_data['multi_ip_tcp']
+    tcp_results = multi_tcp.get('tcp_results', {})
+
+    if primary_ip not in tcp_results or not tcp_results[primary_ip]:
+        return False
+
+    # 比较关键字段
+    traditional = json_data['tcp_connection']
+    multi_ip_data = tcp_results[primary_ip]
+
+    # 定义需要比较的关键字段
+    key_fields = [
+        'host', 'port', 'target_ip', 'connect_time_ms',
+        'is_connected', 'socket_family', 'local_address', 'local_port'
+    ]
+
+    # 逐个比较字段
+    for field in key_fields:
+        traditional_value = traditional.get(field)
+        multi_ip_value = multi_ip_data.get(field)
+
+        # 如果字段值不同，则不是重复
+        if traditional_value != multi_ip_value:
+            return False
+
+    logger.debug(f"TCP duplication detected for IP {primary_ip}")
     return True
 
 

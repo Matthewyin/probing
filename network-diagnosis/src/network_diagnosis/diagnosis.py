@@ -71,16 +71,28 @@ class NetworkDiagnosisCoordinator:
             error_messages.append(f"DNS resolution failed: {dns_result.error_message}")
 
         try:
-            # 2. TCP连接测试（只有DNS解析成功才进行）
-            if target_ip:
-                logger.info("Testing TCP connection...")
-                tcp_result = await self.tcp_service.test_connection(request.domain, request.port, target_ip)
-                result.tcp_connection = tcp_result
+            # 2. TCP连接测试（统一使用多IP逻辑）
+            tcp_result = None
+            if dns_result.is_successful and dns_result.resolved_ips:
+                ip_count = len(dns_result.resolved_ips)
+                logger.info(f"Performing TCP connection test for {ip_count} IP{'s' if ip_count > 1 else ''}")
+
+                # 统一的多IP TCP测试（单IP时列表长度为1）
+                multi_tcp_result = await self.tcp_service.test_multiple_connections(
+                    request.domain, request.port, dns_result.resolved_ips
+                )
+                result.multi_ip_tcp = multi_tcp_result
+
+                # 向后兼容：从多IP结果中提取primary_ip结果
+                if dns_result.primary_ip and dns_result.primary_ip in multi_tcp_result.tcp_results:
+                    tcp_result = multi_tcp_result.tcp_results[dns_result.primary_ip]
+                    result.tcp_connection = tcp_result
+
+                # 检查连接状态
+                if tcp_result and not tcp_result.is_connected:
+                    error_messages.append(f"TCP connection failed: {tcp_result.error_message}")
             else:
                 error_messages.append("Skipping TCP test due to DNS resolution failure")
-
-                if not tcp_result.is_connected:
-                    error_messages.append(f"TCP connection failed: {tcp_result.error_message}")
 
             # 3. TLS信息收集（根据配置和端口决定）
             if (request.include_tls and

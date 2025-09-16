@@ -288,6 +288,45 @@ class MultiIPNetworkPathInfo(BaseModel):
     trace_method: str = Field("mtr", description="使用的追踪方法")
 
 
+class TCPSummary(BaseModel):
+    """TCP连接汇总统计信息"""
+    total_ips: int = Field(..., description="测试的IP总数")
+    successful_connections: int = Field(..., description="成功连接的IP数量")
+    failed_connections: int = Field(..., description="连接失败的IP数量")
+    success_rate: float = Field(..., description="连接成功率")
+
+    # 性能统计
+    fastest_connection_ip: Optional[str] = Field(None, description="连接最快的IP地址")
+    fastest_connection_time_ms: Optional[float] = Field(None, description="最快连接时间（毫秒）")
+    slowest_connection_ip: Optional[str] = Field(None, description="连接最慢的IP地址")
+    slowest_connection_time_ms: Optional[float] = Field(None, description="最慢连接时间（毫秒）")
+    average_connection_time_ms: Optional[float] = Field(None, description="平均连接时间（毫秒）")
+
+    # 推荐信息
+    recommended_ip: Optional[str] = Field(None, description="推荐使用的IP地址")
+    recommendation_reason: Optional[str] = Field(None, description="推荐理由")
+
+
+class MultiIPTCPInfo(BaseModel):
+    """多IP TCP连接测试信息"""
+    target_domain: str = Field(..., description="目标域名")
+    target_port: int = Field(..., description="目标端口")
+    tested_ips: List[str] = Field(..., description="测试的IP地址列表")
+
+    # 每个IP的TCP连接结果
+    tcp_results: Dict[str, Optional[Union[TCPConnectionInfo, "EnhancedTCPConnectionInfo"]]] = Field(
+        default_factory=dict,
+        description="IP地址到TCP连接结果的映射"
+    )
+
+    # 汇总统计信息
+    summary: TCPSummary = Field(..., description="TCP连接汇总统计")
+
+    # 执行信息
+    total_execution_time_ms: float = Field(..., description="所有IP测试的总执行时间")
+    concurrent_execution: bool = Field(True, description="是否并发执行")
+
+
 class PublicIPInfo(BaseModel):
     """公网IP信息"""
     ip: str = Field(..., description="公网IP地址")
@@ -325,6 +364,7 @@ class NetworkDiagnosisResult(BaseModel):
     public_ip_info: Optional[PublicIPInfo] = None  # 发起端公网IP信息
 
     # 多IP测试结果
+    multi_ip_tcp: Optional[MultiIPTCPInfo] = Field(None, description="多IP TCP连接测试结果")
     multi_ip_icmp: Optional[MultiIPICMPInfo] = Field(None, description="多IP ICMP测试结果")
     multi_ip_network_path: Optional[MultiIPNetworkPathInfo] = Field(None, description="多IP网络路径追踪结果")
 

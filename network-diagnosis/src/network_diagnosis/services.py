@@ -692,6 +692,165 @@ class TCPConnectionService:
                 error_message=error_msg
             )
 
+    async def test_multiple_connections(self, domain: str, port: int, ip_list: List[str]) -> "MultiIPTCPInfo":
+        """
+        对多个IP地址进行TCP连接测试
+
+        Args:
+            domain: 目标域名
+            port: 目标端口
+            ip_list: 要测试的IP地址列表
+
+        Returns:
+            MultiIPTCPInfo: 多IP TCP连接测试结果
+        """
+        from .models import MultiIPTCPInfo, TCPSummary
+
+        start_time = time.time()
+        logger.info(f"Starting multi-IP TCP connection test to {domain}:{port} with {len(ip_list)} IPs: {ip_list}")
+
+        # 并发执行所有IP的TCP连接测试
+        tasks = []
+        for ip in ip_list:
+            task = self.test_connection_to_ip(domain, port, ip)
+            tasks.append(task)
+
+        # 等待所有测试完成
+        tcp_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # 处理结果
+        results_dict = {}
+        successful_connections = 0
+        failed_connections = 0
+        connection_times = []
+
+        for i, result in enumerate(tcp_results):
+            ip = ip_list[i]
+
+            if isinstance(result, Exception):
+                # 处理异常情况
+                logger.error(f"TCP test to {ip} failed with exception: {result}")
+                results_dict[ip] = None
+                failed_connections += 1
+            else:
+                results_dict[ip] = result
+                if result.is_connected:
+                    successful_connections += 1
+                    connection_times.append((ip, result.connect_time_ms))
+                else:
+                    failed_connections += 1
+
+        # 计算汇总统计
+        summary = self._create_tcp_summary(
+            ip_list, successful_connections, failed_connections, connection_times
+        )
+
+        total_time = (time.time() - start_time) * 1000
+
+        logger.info(f"Multi-IP TCP test completed: {successful_connections}/{len(ip_list)} successful connections")
+
+        return MultiIPTCPInfo(
+            target_domain=domain,
+            target_port=port,
+            tested_ips=ip_list,
+            tcp_results=results_dict,
+            summary=summary,
+            total_execution_time_ms=total_time,
+            concurrent_execution=True
+        )
+
+    async def test_connection_to_ip(self, domain: str, port: int, ip: str) -> "TCPConnectionInfo":
+        """
+        对单个IP进行TCP连接测试（内部方法）
+
+        Args:
+            domain: 域名
+            port: 端口
+            ip: IP地址
+
+        Returns:
+            TCPConnectionInfo: TCP连接结果
+        """
+        try:
+            return await self.test_connection(domain, port, ip)
+        except Exception as e:
+            logger.error(f"TCP connection test to {ip} failed: {e}")
+            from .models import TCPConnectionInfo
+            return TCPConnectionInfo(
+                host=domain,
+                port=port,
+                target_ip=ip,
+                connect_time_ms=0.0,
+                is_connected=False,
+                socket_family="IPv4",
+                error_message=str(e)
+            )
+
+    def _create_tcp_summary(self, ip_list: List[str], successful: int, failed: int,
+                           connection_times: List[tuple]) -> "TCPSummary":
+        """
+        创建TCP连接汇总统计
+
+        Args:
+            ip_list: IP列表
+            successful: 成功连接数
+            failed: 失败连接数
+            connection_times: 连接时间列表 [(ip, time_ms), ...]
+
+        Returns:
+            TCPSummary: TCP汇总统计
+        """
+        from .models import TCPSummary
+
+        total_ips = len(ip_list)
+        success_rate = (successful / total_ips) * 100 if total_ips > 0 else 0.0
+
+        # 性能统计
+        fastest_ip = None
+        fastest_time = None
+        slowest_ip = None
+        slowest_time = None
+        average_time = None
+
+        if connection_times:
+            # 按连接时间排序
+            sorted_times = sorted(connection_times, key=lambda x: x[1])
+
+            fastest_ip, fastest_time = sorted_times[0]
+            slowest_ip, slowest_time = sorted_times[-1]
+
+            # 计算平均时间
+            total_time = sum(time for _, time in connection_times)
+            average_time = total_time / len(connection_times)
+
+        # 推荐IP（选择最快的连接IP）
+        recommended_ip = fastest_ip
+        recommendation_reason = None
+        if recommended_ip:
+            recommendation_reason = f"连接时间最短 ({fastest_time:.2f}ms)"
+        elif successful > 0:
+            # 如果没有连接时间数据但有成功连接，推荐第一个成功的
+            for ip in ip_list:
+                # 这里需要从结果中找到第一个成功的IP
+                # 简化处理，推荐第一个IP
+                recommended_ip = ip_list[0]
+                recommendation_reason = "首个可用连接"
+                break
+
+        return TCPSummary(
+            total_ips=total_ips,
+            successful_connections=successful,
+            failed_connections=failed,
+            success_rate=success_rate,
+            fastest_connection_ip=fastest_ip,
+            fastest_connection_time_ms=fastest_time,
+            slowest_connection_ip=slowest_ip,
+            slowest_connection_time_ms=slowest_time,
+            average_connection_time_ms=average_time,
+            recommended_ip=recommended_ip,
+            recommendation_reason=recommendation_reason
+        )
+
 
 class TLSService:
     """TLS/SSL信息收集服务"""

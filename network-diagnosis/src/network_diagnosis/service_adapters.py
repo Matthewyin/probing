@@ -3,7 +3,7 @@
 提供统一接口，支持在aiohttp和传统实现之间切换
 """
 import asyncio
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
 from .logger import get_logger
 from .config import settings
@@ -139,6 +139,34 @@ class TCPServiceAdapter:
             "field_checks": checks,
             "differences": [field for field, consistent in checks.items() if not consistent]
         }
+
+    async def test_multiple_connections(self, domain: str, port: int, ip_list: List[str]) -> "MultiIPTCPInfo":
+        """
+        多IP TCP连接测试的统一接口
+
+        Args:
+            domain: 目标域名
+            port: 目标端口
+            ip_list: 要测试的IP地址列表
+
+        Returns:
+            MultiIPTCPInfo: 多IP TCP连接测试结果
+        """
+        if settings.USE_ASYNC_TCP_SERVICE:
+            try:
+                # 尝试使用AsyncTCPService的多IP测试
+                # 注意：AsyncTCPService可能还没有多IP方法，先使用传统方法
+                return await self.legacy_service.test_multiple_connections(domain, port, ip_list)
+            except Exception as e:
+                logger.warning(f"AsyncTCP multi-IP test failed, falling back to legacy: {e}")
+
+                if settings.TCP_FALLBACK_ENABLED:
+                    return await self.legacy_service.test_multiple_connections(domain, port, ip_list)
+                else:
+                    raise
+        else:
+            # 直接使用传统实现
+            return await self.legacy_service.test_multiple_connections(domain, port, ip_list)
 
 
 
