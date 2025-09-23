@@ -12,6 +12,7 @@ from apscheduler.events import EVENT_JOB_EXECUTED, EVENT_JOB_ERROR
 from .config_loader import ConfigLoader, SchedulerConfig
 from .batch_runner import BatchDiagnosisRunner
 from .logger import get_logger
+from .resource_monitor import ResourceMonitor
 
 logger = get_logger(__name__)
 
@@ -116,8 +117,16 @@ class SchedulerRunner:
         """执行批量诊断任务"""
         start_time = datetime.now()
         logger.info(f"Starting scheduled batch diagnosis at {start_time}")
-        
+
         try:
+            # 🔍 检查资源状态，如果资源不足则跳过执行
+            resource_status = ResourceMonitor.check_resource_limits()
+            if resource_status['critical']:
+                logger.error(f"🚨 Skipping batch diagnosis due to critical resource usage: {resource_status['usage_percentage']}")
+                return
+            elif resource_status['warning']:
+                logger.warning(f"⚠️ High resource usage detected: {resource_status['usage_percentage']}")
+
             # 创建批量诊断运行器
             runner = BatchDiagnosisRunner(self.config_file)
             

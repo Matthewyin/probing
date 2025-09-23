@@ -20,6 +20,7 @@ from cryptography.hazmat.primitives import hashes
 
 from .logger import get_logger
 from .config import settings
+from .process_manager import managed_subprocess
 
 logger = get_logger(__name__)
 
@@ -1197,36 +1198,25 @@ class NetworkPathService:
             cmd = ['sudo', 'mtr', '-rwc', '5', '-f', '1', '-n', '-i', '1', '-4', '-z', '--json', host]
             logger.info(f"Executing mtr command: {' '.join(cmd)}")
 
-            # 执行命令
-            process = await asyncio.create_subprocess_exec(
+            # 🔧 优化：使用统一的进程管理器
+            async with managed_subprocess(
                 *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
+                timeout=300.0,
+                description=f"mtr trace to {host}"
+            ) as process:
+                stdout, stderr = await process.communicate()
 
-            # 等待命令完成（无需密码输入），设置超时
-            try:
-                stdout, stderr = await asyncio.wait_for(
-                    process.communicate(),
-                    timeout=300.0
-                )
-            except asyncio.TimeoutError:
-                logger.warning(f"mtr command timed out for {host}")
-                process.kill()
-                return None
-
-            logger.info(f"mtr command completed with return code: {process.returncode}")
-
-            if process.returncode == 0:
-                # 解析mtr JSON输出
-                stdout_str = stdout.decode()
-                logger.debug(f"mtr output length: {len(stdout_str)} characters")
-                mtr_data = json.loads(stdout_str)
-                return self._parse_mtr_output(mtr_data, host)
-            else:
-                stderr_str = stderr.decode()
-                logger.warning(f"mtr failed with return code {process.returncode}: {stderr_str}")
-                return None
+                if process.returncode == 0:
+                    # 解析mtr JSON输出
+                    try:
+                        mtr_data = json.loads(stdout.decode())
+                        return self._parse_mtr_output(mtr_data, host)
+                    except json.JSONDecodeError as e:
+                        logger.warning(f"Failed to parse mtr JSON output for {host}: {e}")
+                        return None
+                else:
+                    logger.warning(f"mtr failed for {host}: {stderr.decode()}")
+                    return None
 
         except Exception as e:
             logger.error(f"mtr execution failed: {str(e)}")
@@ -1238,21 +1228,20 @@ class NetworkPathService:
             # 构建traceroute命令
             cmd = ['traceroute', '-n', '-m', '30', '-w', '2', host]
 
-            # 执行命令
-            process = await asyncio.create_subprocess_exec(
+            # 🔧 优化：使用统一的进程管理器
+            async with managed_subprocess(
                 *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
+                timeout=300.0,
+                description=f"traceroute to {host}"
+            ) as process:
+                stdout, stderr = await process.communicate()
 
-            stdout, stderr = await process.communicate()
-
-            if process.returncode == 0:
-                # 解析traceroute输出
-                return self._parse_traceroute_output(stdout.decode(), host)
-            else:
-                logger.warning(f"traceroute failed: {stderr.decode()}")
-                return None
+                if process.returncode == 0:
+                    # 解析traceroute输出
+                    return self._parse_traceroute_output(stdout.decode(), host)
+                else:
+                    logger.warning(f"traceroute failed: {stderr.decode()}")
+                    return None
 
         except Exception as e:
             logger.error(f"traceroute execution failed: {str(e)}")
@@ -1435,37 +1424,25 @@ class NetworkPathService:
             cmd = ['sudo', 'mtr', '-rwc', '5', '-f', '1', '-n', '-i', '1', '-4', '-z', '--json', ip]
             logger.debug(f"Executing direct mtr command: {' '.join(cmd)}")
 
-            # 执行命令
-            process = await asyncio.create_subprocess_exec(
+            # 🔧 优化：使用统一的进程管理器
+            async with managed_subprocess(
                 *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
+                timeout=300.0,
+                description=f"direct mtr trace to {ip}"
+            ) as process:
+                stdout, stderr = await process.communicate()
 
-            # 等待命令完成，设置超时
-            try:
-                stdout, stderr = await asyncio.wait_for(
-                    process.communicate(),
-                    timeout=300.0
-                )
-            except asyncio.TimeoutError:
-                logger.warning(f"Direct mtr command timed out for {ip}")
-                process.kill()
-                return None
-
-            if process.returncode == 0:
-                # 解析mtr JSON输出
-                output = stdout.decode('utf-8', errors='ignore')
-                try:
-                    mtr_data = json.loads(output)
-                    return self._parse_mtr_output(mtr_data, ip)
-                except json.JSONDecodeError as e:
-                    logger.error(f"Failed to parse mtr JSON output for {ip}: {str(e)}")
+                if process.returncode == 0:
+                    # 解析mtr JSON输出
+                    try:
+                        mtr_data = json.loads(stdout.decode())
+                        return self._parse_mtr_output(mtr_data, ip)
+                    except json.JSONDecodeError as e:
+                        logger.warning(f"Failed to parse direct mtr JSON output for {ip}: {e}")
+                        return None
+                else:
+                    logger.warning(f"Direct mtr failed for {ip}: {stderr.decode()}")
                     return None
-            else:
-                error_output = stderr.decode('utf-8', errors='ignore')
-                logger.warning(f"Direct mtr to {ip} failed: {error_output}")
-                return None
 
         except Exception as e:
             logger.error(f"Direct mtr to {ip} failed: {str(e)}")
@@ -1478,32 +1455,22 @@ class NetworkPathService:
             cmd = ['traceroute', '-n', '-w', '3', '-q', '3', '-m', '30', ip]
             logger.debug(f"Executing direct traceroute command: {' '.join(cmd)}")
 
-            # 执行命令
-            process = await asyncio.create_subprocess_exec(
+            # 🔧 优化：使用统一的进程管理器
+            async with managed_subprocess(
                 *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
+                timeout=300.0,
+                description=f"direct traceroute to {ip}"
+            ) as process:
+                stdout, stderr = await process.communicate()
 
-            # 等待命令完成，设置超时
-            try:
-                stdout, stderr = await asyncio.wait_for(
-                    process.communicate(),
-                    timeout=300.0
-                )
-            except asyncio.TimeoutError:
-                logger.warning(f"Direct traceroute command timed out for {ip}")
-                process.kill()
-                return None
-
-            if process.returncode == 0:
-                # 解析traceroute输出
-                output = stdout.decode('utf-8', errors='ignore')
-                return self._parse_traceroute_output(output, ip)
-            else:
-                error_output = stderr.decode('utf-8', errors='ignore')
-                logger.warning(f"Direct traceroute to {ip} failed: {error_output}")
-                return None
+                if process.returncode == 0:
+                    # 解析traceroute输出
+                    output = stdout.decode('utf-8', errors='ignore')
+                    return self._parse_traceroute_output(output, ip)
+                else:
+                    error_output = stderr.decode('utf-8', errors='ignore')
+                    logger.warning(f"Direct traceroute to {ip} failed: {error_output}")
+                    return None
 
         except Exception as e:
             logger.error(f"Direct traceroute to {ip} failed: {str(e)}")
@@ -1749,35 +1716,24 @@ class ICMPService:
             ping_cmd = self._build_ping_command(host)
             logger.info(f"Executing ping command: {' '.join(ping_cmd)}")
 
-            # 执行ping命令
-            process = await asyncio.create_subprocess_exec(
+            # 🔧 优化：使用统一的进程管理器
+            async with managed_subprocess(
                 *ping_cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
+                timeout=self.timeout_ms / 1000 + 15,  # 额外15秒缓冲
+                description=f"ping to {host}"
+            ) as process:
+                stdout, stderr = await process.communicate()
+                execution_time = (time.time() - start_time) * 1000
 
-            # 等待命令完成，设置超时
-            try:
-                stdout, stderr = await asyncio.wait_for(
-                    process.communicate(),
-                    timeout=self.timeout_ms / 1000 + 15  # 额外5秒缓冲
-                )
-            except asyncio.TimeoutError:
-                logger.warning(f"Ping command timed out for {host}")
-                process.kill()
-                return self._create_timeout_result(host, ping_cmd)
-
-            execution_time = (time.time() - start_time) * 1000
-
-            if process.returncode == 0:
-                # 解析ping输出
-                stdout_str = stdout.decode('utf-8', errors='ignore')
-                return self._parse_ping_output(stdout_str, host, ping_cmd, execution_time)
-            else:
-                # ping失败
-                stderr_str = stderr.decode('utf-8', errors='ignore')
-                logger.warning(f"Ping failed for {host}: {stderr_str}")
-                return self._create_error_result(host, ping_cmd, execution_time, stderr_str)
+                if process.returncode == 0:
+                    # 解析ping输出
+                    stdout_str = stdout.decode('utf-8', errors='ignore')
+                    return self._parse_ping_output(stdout_str, host, ping_cmd, execution_time)
+                else:
+                    # ping失败
+                    stderr_str = stderr.decode('utf-8', errors='ignore')
+                    logger.warning(f"Ping failed for {host}: {stderr_str}")
+                    return self._create_error_result(host, ping_cmd, execution_time, stderr_str)
 
         except Exception as e:
             execution_time = (time.time() - start_time) * 1000
@@ -2035,35 +1991,24 @@ class ICMPService:
             # 构建ping命令（直接使用IP地址）
             ping_cmd = self._build_ping_command(ip)
 
-            # 执行ping命令
-            process = await asyncio.create_subprocess_exec(
+            # 🔧 优化：使用统一的进程管理器
+            async with managed_subprocess(
                 *ping_cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
+                timeout=self.timeout_ms / 1000 + 15,  # 额外15秒缓冲
+                description=f"direct ping to {ip}"
+            ) as process:
+                stdout, stderr = await process.communicate()
+                execution_time = (time.time() - start_time) * 1000
 
-            # 等待命令完成，设置超时
-            try:
-                stdout, stderr = await asyncio.wait_for(
-                    process.communicate(),
-                    timeout=self.timeout_ms / 1000 + 15  # 额外15秒缓冲
-                )
-            except asyncio.TimeoutError:
-                logger.warning(f"Direct ping command timed out for {ip}")
-                process.kill()
-                return self._create_timeout_result(ip, ping_cmd)
-
-            execution_time = (time.time() - start_time) * 1000
-
-            if process.returncode == 0:
-                # 解析ping输出
-                output = stdout.decode('utf-8', errors='ignore')
-                return self._parse_ping_output(output, ip, ping_cmd, execution_time)
-            else:
-                # ping失败
-                error_output = stderr.decode('utf-8', errors='ignore')
-                logger.warning(f"Direct ping to {ip} failed with return code {process.returncode}: {error_output}")
-                return self._create_error_result(ip, ping_cmd, execution_time, error_output)
+                if process.returncode == 0:
+                    # 解析ping输出
+                    output = stdout.decode('utf-8', errors='ignore')
+                    return self._parse_ping_output(output, ip, ping_cmd, execution_time)
+                else:
+                    # ping失败
+                    error_output = stderr.decode('utf-8', errors='ignore')
+                    logger.warning(f"Direct ping to {ip} failed with return code {process.returncode}: {error_output}")
+                    return self._create_error_result(ip, ping_cmd, execution_time, error_output)
 
         except Exception as e:
             execution_time = (time.time() - start_time) * 1000

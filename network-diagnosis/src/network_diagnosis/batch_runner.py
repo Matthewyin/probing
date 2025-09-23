@@ -14,6 +14,7 @@ from .models import NetworkDiagnosisResult, DiagnosisRequest, PublicIPInfo
 from .logger import get_logger, setup_config_logging
 from .services import PublicIPService
 from .config import settings
+from .resource_monitor import ResourceMonitor
 
 logger = get_logger(__name__)
 
@@ -135,6 +136,9 @@ class BatchDiagnosisRunner:
         logger.info(f"Output directory: {self.output_subdir}")
         logger.info(f"Log file: {self.log_filepath}")
 
+        # 🔍 监控：记录开始时的资源状态
+        ResourceMonitor.log_status_summary()
+
         # 确保输出目录存在
         self.output_subdir.mkdir(parents=True, exist_ok=True)
 
@@ -211,7 +215,10 @@ class BatchDiagnosisRunner:
             await self._save_batch_report(batch_result, global_settings)
         
         logger.info(f"Batch diagnosis completed: {batch_result.successful_count}/{len(requests)} successful")
-        
+
+        # 🔍 监控：记录结束时的资源状态
+        ResourceMonitor.log_status_summary()
+
         return batch_result
     
     async def _diagnose_with_semaphore(
