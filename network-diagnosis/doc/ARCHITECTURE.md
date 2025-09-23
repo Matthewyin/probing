@@ -1,32 +1,46 @@
 # 网络诊断工具系统架构文档
 
+> 🏗️ **企业级网络诊断和监控平台** - 技术架构和设计原理
+
+## 📖 目录
+
+1. [系统架构概览](#系统架构概览)
+2. [企业级架构特性](#企业级架构特性)
+3. [核心组件设计](#核心组件设计)
+4. [监控和恢复架构](#监控和恢复架构)
+5. [数据流和处理](#数据流和处理)
+6. [安全和可靠性](#安全和可靠性)
+7. [性能和扩展性](#性能和扩展性)
+8. [部署架构](#部署架构)
+
 ## 1. 系统架构概览
 
 ### 1.1 整体架构图
-
-本文档描述了网络诊断工具的完整系统架构，包括最新的功能增强特性：HTTP头信息增强解析、ICMP多IP拨测、MTR多IP拨测等。
 
 ```mermaid
 graph TB
     subgraph "用户接口层"
         CLI[命令行接口]
         BatchCLI[批量诊断接口]
-        API[编程接口]
+        SchedulerCLI[定时任务接口]
+        TestSuite[测试套件接口]
     end
     
     subgraph "应用层"
-        Main[main.py - 根目录]
-        BatchMain[batch_main.py - 根目录]
-        API[编程接口]
+        Main[main.py - 单目标诊断]
+        BatchMain[batch_main.py - 批量诊断]
+        SchedulerMain[scheduler_main.py - 定时任务]
+        ComprehensiveTest[comprehensive_test.py - 综合测试]
     end
     
     subgraph "业务逻辑层"
         Coordinator[DiagnosisCoordinator]
         BatchRunner[BatchDiagnosisRunner]
+        SchedulerRunner[SchedulerRunner]
         ConfigLoader[ConfigLoader]
     end
     
-    subgraph "服务层"
+    subgraph "核心服务层"
         TCPService[TCPConnectionService]
         TLSService[TLSService]
         HTTPService[HTTPService]
@@ -34,25 +48,41 @@ graph TB
         PathService[NetworkPathService]
     end
     
+    subgraph "🆕 企业级服务层"
+        SingletonLogger[SingletonLoggerManager]
+        EnhancedMonitor[EnhancedMonitor]
+        AutoRecovery[AutoRecoverySystem]
+        ProcessManager[ProcessManager]
+        ResourceMonitor[ResourceMonitor]
+    end
+    
     subgraph "数据层"
         Models[Pydantic Models]
         Config[Configuration]
-        Logger[Logging System]
+        MonitoringData[监控数据存储]
+        AlertHistory[告警历史]
     end
     
     subgraph "外部系统"
         Network[网络目标]
         FileSystem[文件系统]
         OS[操作系统]
+        NotificationSystems[通知系统]
     end
     
     CLI --> Main
     BatchCLI --> BatchMain
-    API --> API
+    SchedulerCLI --> SchedulerMain
+    TestSuite --> ComprehensiveTest
     
     Main --> Coordinator
     BatchMain --> BatchRunner
-    BatchRunner --> ConfigLoader
+    SchedulerMain --> SchedulerRunner
+    
+    BatchRunner --> Coordinator
+    SchedulerRunner --> BatchRunner
+    SchedulerRunner --> EnhancedMonitor
+    SchedulerRunner --> AutoRecovery
     
     Coordinator --> TCPService
     Coordinator --> TLSService
@@ -60,1366 +90,403 @@ graph TB
     Coordinator --> ICMPService
     Coordinator --> PathService
     
-    TCPService --> Network
-    TLSService --> Network
-    HTTPService --> Network
-    ICMPService --> OS
-    PathService --> OS
+    TCPService --> ProcessManager
+    ICMPService --> ProcessManager
+    PathService --> ProcessManager
     
-    ConfigLoader --> Config
-    BatchRunner --> Models
-    Coordinator --> Models
+    EnhancedMonitor --> ResourceMonitor
+    EnhancedMonitor --> MonitoringData
+    EnhancedMonitor --> AlertHistory
     
-    Models --> FileSystem
-    Logger --> FileSystem
+    AutoRecovery --> EnhancedMonitor
+    AutoRecovery --> SingletonLogger
+    AutoRecovery --> ProcessManager
+    
+    SingletonLogger --> Config
+    EnhancedMonitor --> NotificationSystems
+    
+    ProcessManager --> OS
+    ResourceMonitor --> OS
+    MonitoringData --> FileSystem
+    AlertHistory --> FileSystem
 ```
 
-### 1.2 核心组件说明
+### 1.2 架构层次说明
 
-| 组件 | 职责 | 主要功能 |
-|------|------|----------|
-| **应用入口层** | 用户交互接口 | 命令行解析、参数验证、结果展示 |
-| **业务协调层** | 诊断流程管理 | 任务编排、并发控制、错误处理 |
-| **服务执行层** | 具体诊断实现 | TCP/TLS/HTTP/路径追踪功能 |
-| **数据模型层** | 数据结构定义 | 类型验证、序列化、配置管理 |
-| **基础设施层** | 系统支持服务 | 日志记录、配置加载、文件操作 |
+#### 🎯 **用户接口层**
+- **CLI**: 命令行接口，支持单目标和批量诊断
+- **SchedulerCLI**: 定时任务管理接口
+- **TestSuite**: 综合测试和验证接口
 
-### 1.3 数据流向
+#### 🚀 **应用层**
+- **Main**: 单目标诊断应用入口
+- **BatchMain**: 批量诊断应用入口
+- **SchedulerMain**: 定时任务调度器
+- **ComprehensiveTest**: 综合测试套件
+
+#### 🧠 **业务逻辑层**
+- **DiagnosisCoordinator**: 诊断流程协调器
+- **BatchDiagnosisRunner**: 批量诊断执行器
+- **SchedulerRunner**: 定时任务运行器
+- **ConfigLoader**: 配置加载和管理
+
+#### 🔧 **核心服务层**
+- **TCPConnectionService**: TCP连接测试服务
+- **TLSService**: TLS/SSL分析服务
+- **HTTPService**: HTTP响应检查服务
+- **ICMPService**: ICMP探测服务
+- **NetworkPathService**: 网络路径追踪服务
+
+#### 🛡️ **企业级服务层**
+- **SingletonLoggerManager**: 单例日志管理器
+- **EnhancedMonitor**: 增强监控系统
+- **AutoRecoverySystem**: 自动恢复机制
+- **ProcessManager**: 统一进程管理器
+- **ResourceMonitor**: 系统资源监控器
+
+### 1.3 核心组件对比
+
+| 组件类型 | 传统架构 | 企业级架构 | 改进效果 |
+|----------|----------|------------|----------|
+| **日志管理** | 每次创建新处理器 | 单例模式管理 | 零资源泄漏 |
+| **进程管理** | 分散式管理 | 统一进程管理器 | 避免僵尸进程 |
+| **监控能力** | 基础资源监控 | 智能监控+告警 | 实时健康监控 |
+| **故障处理** | 手动干预 | 自动恢复机制 | 自动故障恢复 |
+| **测试覆盖** | 基础功能测试 | 30+综合测试 | 全面质量保证 |
+
+## 2. 企业级架构特性
+
+### 2.1 零资源泄漏架构
+
+#### 🔧 **单例日志管理器**
+
+```python
+class SingletonLoggerManager:
+    _instance: Optional['SingletonLoggerManager'] = None
+    _lock = threading.Lock()
+    
+    def __new__(cls) -> 'SingletonLoggerManager':
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+        return cls._instance
+```
+
+**核心特性**:
+
+- **线程安全**: 使用双重检查锁定模式
+- **资源复用**: 避免重复创建日志处理器
+- **自动清理**: 智能资源管理和释放
+- **配置缓存**: 复用日志配置，提高性能
+
+#### 🔄 **统一进程管理器**
+
+```python
+@asynccontextmanager
+async def managed_subprocess(*args, timeout=None, description="", **kwargs):
+    async with process_manager.create_subprocess(*args, timeout=timeout, description=description, **kwargs) as process:
+        yield process
+```
+
+**核心特性**:
+
+- **上下文管理**: 自动资源清理
+- **超时控制**: 防止进程挂起
+- **状态跟踪**: 完整的进程生命周期管理
+- **异常处理**: 优雅的错误处理和恢复
+
+### 2.2 智能监控架构
+
+#### 📊 **增强监控系统**
+
+```mermaid
+graph LR
+    subgraph "监控数据收集"
+        MetricCollector[指标收集器]
+        SystemMetrics[系统指标]
+        AppMetrics[应用指标]
+    end
+    
+    subgraph "告警处理"
+        ThresholdChecker[阈值检查器]
+        AlertManager[告警管理器]
+        NotificationHandler[通知处理器]
+    end
+    
+    subgraph "数据存储"
+        MetricsStorage[指标存储]
+        AlertHistory[告警历史]
+        ConfigStorage[配置存储]
+    end
+    
+    MetricCollector --> SystemMetrics
+    MetricCollector --> AppMetrics
+    SystemMetrics --> ThresholdChecker
+    AppMetrics --> ThresholdChecker
+    ThresholdChecker --> AlertManager
+    AlertManager --> NotificationHandler
+    MetricCollector --> MetricsStorage
+    AlertManager --> AlertHistory
+    ThresholdChecker --> ConfigStorage
+```
+
+**核心特性**:
+
+- **实时监控**: 系统资源和应用指标
+- **智能告警**: 可配置阈值和多级告警
+- **数据持久化**: JSON Lines格式存储
+- **多种通知**: 日志、文件、邮件等方式
+
+### 2.3 自动恢复架构
+
+#### 🛡️ **自动恢复系统**
+
+```mermaid
+stateDiagram-v2
+    [*] --> Monitoring: 系统启动
+    Monitoring --> Analyzing: 检测到异常
+    Analyzing --> Planning: 确定恢复策略
+    Planning --> Executing: 执行恢复动作
+    Executing --> Cooling: 恢复完成
+    Cooling --> Monitoring: 冷却期结束
+    Executing --> Failed: 恢复失败
+    Failed --> Monitoring: 记录失败
+    
+    note right of Monitoring
+        持续监控系统状态
+        检查关键指标
+    end note
+    
+    note right of Planning
+        选择恢复策略:
+        - 资源清理
+        - 服务重启
+        - 紧急关闭
+    end note
+```
+
+**核心特性**:
+
+- **故障检测**: 自动识别系统异常
+- **智能恢复**: 多种恢复策略选择
+- **冷却机制**: 防止频繁恢复操作
+- **状态跟踪**: 完整的恢复历史记录
+
+## 3. 核心组件设计
+
+### 3.1 诊断协调器
+
+```python
+class DiagnosisCoordinator:
+    """统一管理所有诊断功能的协调器"""
+    
+    def __init__(self):
+        self.tcp_service = TCPConnectionService()
+        self.tls_service = TLSService()
+        self.http_service = HTTPService()
+        self.icmp_service = ICMPService()
+        self.path_service = NetworkPathService()
+        self.resource_monitor = ResourceMonitor()
+    
+    async def diagnose(self, target: str, port: int) -> DiagnosisResult:
+        """执行完整的网络诊断流程"""
+        # 实现诊断逻辑
+        pass
+```
+
+### 3.2 批量诊断运行器
+
+```python
+class BatchDiagnosisRunner:
+    """批量诊断执行器，支持并发和监控"""
+    
+    def __init__(self, config: BatchConfig):
+        self.config = config
+        self.coordinator = DiagnosisCoordinator()
+        self.monitor = get_enhanced_monitor()
+        self.recovery = get_auto_recovery_system()
+    
+    async def run_batch_diagnosis(self, targets: List[Target]) -> BatchResult:
+        """执行批量诊断，包含监控和恢复"""
+        # 实现批量诊断逻辑
+        pass
+```
+
+## 4. 监控和恢复架构
+
+### 4.1 监控数据模型
+
+```python
+@dataclass
+class AlertThreshold:
+    metric_name: str
+    warning_threshold: float
+    critical_threshold: float
+    comparison: str = "greater"
+    enabled: bool = True
+
+@dataclass
+class AlertEvent:
+    timestamp: datetime
+    level: str
+    metric_name: str
+    current_value: float
+    threshold_value: float
+    message: str
+    resolved: bool = False
+```
+
+### 4.2 恢复策略配置
+
+```python
+class RecoveryAction(Enum):
+    CLEANUP_RESOURCES = "cleanup_resources"
+    RESTART_LOGGING = "restart_logging"
+    KILL_PROCESSES = "kill_processes"
+    EMERGENCY_SHUTDOWN = "emergency_shutdown"
+
+@dataclass
+class RecoveryRule:
+    name: str
+    trigger_condition: str
+    action: RecoveryAction
+    max_attempts: int = 3
+    cooldown_seconds: int = 300
+    enabled: bool = True
+```
+
+## 5. 数据流和处理
+
+### 5.1 诊断数据流
 
 ```mermaid
 sequenceDiagram
     participant User as 用户
     participant CLI as 命令行接口
-    participant Coord as 诊断协调器
+    participant Coordinator as 诊断协调器
+    participant Monitor as 监控系统
+    participant Recovery as 恢复系统
     participant Services as 诊断服务
-    participant Models as 数据模型
-    participant FS as 文件系统
     
-    User->>CLI: 输入诊断参数
-    CLI->>Coord: 创建诊断请求
-    Coord->>Services: 执行各项诊断
-    Services->>Models: 返回诊断数据
-    Models->>Coord: 验证并封装结果
-    Coord->>FS: 保存JSON文件
-    Coord->>CLI: 返回诊断结果
-    CLI->>User: 显示结果摘要
+    User->>CLI: 启动诊断
+    CLI->>Coordinator: 创建诊断任务
+    Coordinator->>Monitor: 开始监控
+    Coordinator->>Services: 执行诊断
+    Services-->>Monitor: 报告指标
+    Monitor->>Recovery: 检测异常
+    Recovery->>Services: 执行恢复
+    Services-->>Coordinator: 返回结果
+    Coordinator-->>CLI: 诊断完成
+    CLI-->>User: 显示结果
 ```
 
-## 2. 组件详细说明
+### 5.2 监控数据流
 
-### 2.1 应用入口层
-
-#### main.py - 单目标诊断入口（项目根目录）
-
-```python
-# 主要功能
-- 命令行参数解析
-- 单个目标诊断执行
-- 结果格式化输出
-- 错误处理和日志记录
-
-# 核心接口
-async def main() -> int
-
-# 文件位置：/probing/main.py
-# 运行方式：uv run python main.py <domain>
+```mermaid
+flowchart LR
+    A[系统指标收集] --> B[阈值检查]
+    B --> C{是否超阈值?}
+    C -->|是| D[生成告警]
+    C -->|否| E[记录正常状态]
+    D --> F[通知处理]
+    D --> G[存储告警历史]
+    E --> H[存储指标数据]
+    F --> I[发送通知]
+    G --> J[告警分析]
+    H --> K[趋势分析]
 ```
 
-#### batch_main.py - 批量诊断入口（项目根目录）
+## 6. 安全和可靠性
 
-```python
-# 主要功能
-- 配置文件验证
-- 批量诊断执行
-- 汇总报告生成
-- 进度跟踪和状态管理
+### 6.1 安全特性
 
-# 核心接口
-async def main() -> int
+- **资源隔离**: 进程间资源隔离
+- **权限控制**: 最小权限原则
+- **数据保护**: 敏感数据加密存储
+- **审计日志**: 完整的操作审计
 
-# 文件位置：/probing/batch_main.py
-# 运行方式：uv run python batch_main.py -c network-diagnosis/input/config.yaml
-```
+### 6.2 可靠性保证
 
-### 2.2 业务协调层
+- **故障隔离**: 组件间故障隔离
+- **优雅降级**: 部分功能失效时的降级策略
+- **数据一致性**: 确保数据完整性
+- **恢复机制**: 多层次的恢复策略
 
-#### DiagnosisCoordinator - 诊断协调器
-```python
-class DiagnosisCoordinator:
-    """统一管理所有诊断功能的协调器"""
+## 7. 性能和扩展性
+
+### 7.1 性能优化
+
+- **并发处理**: 异步IO和并发执行
+- **资源复用**: 连接池和对象池
+- **缓存策略**: 智能缓存机制
+- **内存管理**: 优化内存使用
+
+### 7.2 扩展性设计
+
+- **模块化**: 松耦合的模块设计
+- **插件架构**: 支持功能扩展
+- **配置驱动**: 灵活的配置管理
+- **API接口**: 标准化的接口设计
+
+## 8. 部署架构
+
+### 8.1 单机部署
+
+```mermaid
+graph TB
+    subgraph "单机环境"
+        App[应用程序]
+        Monitor[监控系统]
+        Storage[数据存储]
+        Logs[日志系统]
+    end
     
-    # 核心方法
-    async def diagnose(self, request: DiagnosisRequest) -> NetworkDiagnosisResult
-    async def _resolve_domain(self, domain: str) -> Optional[str]
-    def save_result_to_file(self, result: NetworkDiagnosisResult) -> str
+    App --> Monitor
+    App --> Storage
+    App --> Logs
+    Monitor --> Storage
+```
+
+### 8.2 分布式部署
+
+```mermaid
+graph TB
+    subgraph "负载均衡层"
+        LB[负载均衡器]
+    end
     
-    # 服务依赖
-    - TCPConnectionService: TCP连接测试
-    - TLSService: TLS/SSL信息收集
-    - HTTPService: HTTP响应分析
-    - NetworkPathService: 网络路径追踪
-```
-
-#### BatchDiagnosisRunner - 批量诊断运行器
-```python
-class BatchDiagnosisRunner:
-    """批量诊断任务的管理和执行"""
+    subgraph "应用层"
+        App1[应用实例1]
+        App2[应用实例2]
+        App3[应用实例3]
+    end
     
-    # 核心方法
-    async def run_batch_diagnosis(self) -> BatchDiagnosisResult
-    async def _diagnose_with_semaphore(...) -> NetworkDiagnosisResult
-    async def _save_batch_report(...)
+    subgraph "监控层"
+        Monitor[集中监控]
+        AlertManager[告警管理]
+    end
     
-    # 并发控制
-    - asyncio.Semaphore: 控制最大并发数
-    - asyncio.gather: 并行执行诊断任务
-    - asyncio.wait_for: 超时控制
-```
-
-### 2.3 服务执行层
-
-#### TCPConnectionService - TCP连接服务
-```python
-class TCPConnectionService:
-    """TCP连接测试实现"""
-
-    async def test_connection(self, host: str, port: int) -> TCPConnectionInfo:
-        # 功能实现
-        - socket.socket(): 创建TCP套接字
-        - socket.connect_ex(): 非阻塞连接测试
-        - 连接时间测量（毫秒级精度）
-        - 错误状态捕获和处理
-```
-
-#### HTTPService - HTTP响应服务（增强版）
-```python
-class HTTPService:
-    """HTTP响应信息收集实现（包含增强解析功能）"""
-
-    async def get_http_info(self, url: str) -> Optional[HTTPResponseInfo]:
-        # 基础功能
-        - httpx.AsyncClient: 异步HTTP客户端
-        - 响应时间测量
-        - 重定向跟踪
-        - 响应头和状态码收集
-
-        # 🆕 增强功能
-        - _parse_origin_info(): 源站信息解析
-        - _analyze_headers(): HTTP头分析
-        - _detect_cdn_provider(): CDN检测
-        - _extract_possible_origin_ips(): IP地址提取
-
-    def _parse_origin_info(self, headers: Dict[str, str]) -> OriginServerInfo:
-        """解析源站相关信息"""
-        # 提取X-Real-IP、X-Forwarded-For等头信息
-        # 识别CDN提供商特征
-        # 分析代理链路信息
-
-    def _analyze_headers(self, headers: Dict[str, str]) -> HTTPHeaderAnalysis:
-        """分析HTTP头信息"""
-        # 安全头分析（X-Frame-Options、CSP等）
-        # 性能头分析（Cache-Control、ETag等）
-        # 自定义头统计和分类
-```
-
-#### TLSService - TLS/SSL服务
-```python
-class TLSService:
-    """TLS/SSL信息收集实现"""
+    subgraph "存储层"
+        DB[数据库]
+        FileStorage[文件存储]
+    end
     
-    async def get_tls_info(self, host: str, port: int) -> Optional[TLSInfo]:
-        # 功能实现
-        - ssl.create_default_context(): SSL上下文创建
-        - TLS握手时间测量
-        - 证书信息解析（cryptography库）
-        - 加密套件和协议版本获取
+    LB --> App1
+    LB --> App2
+    LB --> App3
     
-    def _parse_certificate(self, cert_data: bytes) -> Optional[SSLCertificateInfo]:
-        # 证书解析功能
-        - x509证书解析
-        - 有效期计算
-        - 指纹生成
-        - 公钥信息提取
-```
-
-#### HTTPService - HTTP响应服务
-```python
-class HTTPService:
-    """HTTP响应信息收集实现"""
+    App1 --> Monitor
+    App2 --> Monitor
+    App3 --> Monitor
     
-    async def get_http_info(self, url: str) -> Optional[HTTPResponseInfo]:
-        # 功能实现
-        - httpx.AsyncClient: 异步HTTP客户端
-        - 响应时间测量
-        - 重定向跟踪
-        - 响应头和状态码收集
-        - 内容长度和类型分析
+    Monitor --> AlertManager
+    Monitor --> DB
+    App1 --> FileStorage
+    App2 --> FileStorage
+    App3 --> FileStorage
 ```
 
-#### ICMPService - ICMP探测服务（增强版）
-```python
-class ICMPService:
-    """ICMP网络连通性测试实现（支持多IP并行测试）"""
+---
 
-    async def ping(self, host: str) -> Optional[ICMPInfo]:
-        # 传统单IP测试（保持向后兼容）
-
-    # 🆕 多IP并行测试功能
-    async def ping_multiple_ips(self, domain: str, ip_list: List[str]) -> MultiIPICMPInfo:
-        """对多个IP进行并行ICMP测试"""
-        # 创建并发任务
-        tasks = [(ip, asyncio.create_task(self.ping_ip_directly(ip))) for ip in ip_list]
-
-        # 等待所有任务完成
-        results = await asyncio.gather(*[task for _, task in tasks], return_exceptions=True)
-
-        # 汇总结果和统计分析
-        return self._create_icmp_summary(results)
-
-    async def ping_ip_directly(self, ip: str) -> Optional[ICMPInfo]:
-        """直接对IP地址进行ping测试"""
-        # 跨平台ping命令构建
-        # 异步subprocess执行
-        # 输出解析和统计计算
-
-    def _create_icmp_summary(self, results: Dict[str, Optional[ICMPInfo]]) -> ICMPSummary:
-        """创建ICMP测试汇总统计"""
-        # 计算成功率和失败率
-        # 识别最佳性能IP
-        # 统计RTT分布和丢包率
-        # 生成性能对比报告
-```
-
-#### NetworkPathService - 网络路径服务（增强版）
-```python
-class NetworkPathService:
-    """网络路径追踪实现（支持多IP并行追踪）"""
-
-    async def trace_path(self, host: str) -> Optional[NetworkPathInfo]:
-        # 传统单IP路径追踪（保持向后兼容）
-
-    # 🆕 多IP并行路径追踪功能
-    async def trace_multiple_ips(self, domain: str, ip_list: List[str]) -> MultiIPNetworkPathInfo:
-        """对多个IP进行并行网络路径追踪"""
-        # 创建并发任务
-        tasks = [(ip, asyncio.create_task(self.trace_ip_directly(ip))) for ip in ip_list]
-
-        # 等待所有任务完成
-        results = await asyncio.gather(*[task for _, task in tasks], return_exceptions=True)
-
-        # 路径对比分析
-        return self._create_path_summary(results)
-
-    async def trace_ip_directly(self, ip: str) -> Optional[NetworkPathInfo]:
-        """直接对IP地址进行路径追踪"""
-        # mtr命令执行（优先）
-        # traceroute命令备选
-        # JSON输出解析
-
-    def _create_path_summary(self, results: Dict[str, Optional[NetworkPathInfo]]) -> PathSummary:
-        """创建网络路径追踪汇总统计"""
-        # 分析共同跳点
-        # 计算路径差异
-        # 识别最短/最快路径
-        # 统计网络质量指标
-
-    def _analyze_common_hops(self, path_results: Dict[str, NetworkPathInfo]) -> List[str]:
-        """分析多个路径的共同跳点"""
-        # 提取所有路径的跳点信息
-        # 计算跳点出现频率
-        # 识别网络基础设施节点
-
-    async def _trace_with_mtr_direct(self, ip: str) -> Optional[NetworkPathInfo]:
-        # mtr命令参数：sudo mtr -rwc 5 -f 1 -n -i 1 -4 -z --json {ip}
-        # 直接对IP地址进行追踪，避免DNS解析
-
-    def _parse_mtr_output(self, mtr_data: Dict[str, Any], ip: str) -> NetworkPathInfo:
-        # 解析mtr JSON输出，提取：
-        # - 跳点IP地址和主机名
-        # - 平均响应时间和丢包率
-        # - ASN信息和地理位置
-        # - 数据包统计和质量指标
-
-## 3. 调用关系图
-
-### 3.1 模块依赖关系
-
-```mermaid
-graph TD
-    subgraph "应用层 (项目根目录)"
-        A[main.py]
-        B[batch_main.py]
-    end
-
-    subgraph "业务层 (network-diagnosis/src/network_diagnosis/)"
-        D[diagnosis.py]
-        E[batch_runner.py]
-        F[config_loader.py]
-    end
-
-    subgraph "服务层 (network-diagnosis/src/network_diagnosis/)"
-        G[services.py]
-    end
-
-    subgraph "数据层 (network-diagnosis/src/network_diagnosis/)"
-        H[models.py]
-        I[logger.py]
-        J[config.py]
-    end
-
-    A --> D
-    B --> E
-    B --> F
-
-    D --> G
-    E --> D
-    E --> F
-
-    G --> H
-    D --> H
-    E --> H
-    F --> H
-
-    G --> I
-    D --> I
-    E --> I
-    F --> I
-
-    G --> J
-    D --> J
-    E --> J
-```
-
-### 3.2 单目标诊断调用链
-
-```mermaid
-sequenceDiagram
-    participant Main as main.py
-    participant Coord as DiagnosisCoordinator
-    participant TCP as TCPConnectionService
-    participant TLS as TLSService
-    participant HTTP as HTTPService
-    participant ICMP as ICMPService
-    participant Path as NetworkPathService
-    participant Models as Pydantic Models
-
-    Main->>Coord: diagnose(request)
-    Coord->>Coord: _resolve_domain()
-
-    Coord->>TCP: test_connection()
-    TCP-->>Coord: TCPConnectionInfo
-
-    Coord->>TLS: get_tls_info()
-    TLS-->>Coord: TLSInfo
-
-    Coord->>HTTP: get_http_info()
-    HTTP-->>Coord: HTTPResponseInfo
-
-    Coord->>ICMP: ping()
-    ICMP-->>Coord: ICMPInfo
-
-    Coord->>Path: trace_path()
-    Path-->>Coord: NetworkPathInfo
-
-    Coord->>Models: NetworkDiagnosisResult()
-    Models-->>Coord: validated_result
-
-    Coord->>Coord: save_result_to_file()
-    Coord-->>Main: NetworkDiagnosisResult
-```
-
-### 3.3 批量诊断调用链
-
-```mermaid
-sequenceDiagram
-    participant BatchMain as batch_main.py
-    participant BatchRunner as BatchDiagnosisRunner
-    participant ConfigLoader as ConfigLoader
-    participant Semaphore as asyncio.Semaphore
-    participant Coord as DiagnosisCoordinator
-
-    BatchMain->>BatchRunner: run_batch_diagnosis()
-    BatchRunner->>ConfigLoader: load_config()
-    ConfigLoader-->>BatchRunner: DiagnosisConfig
-
-    BatchRunner->>BatchRunner: create tasks with semaphore
-
-    loop 并发执行
-        BatchRunner->>Semaphore: acquire()
-        Semaphore->>Coord: diagnose(request)
-        Coord-->>Semaphore: result
-        Semaphore->>BatchRunner: release()
-    end
-
-    BatchRunner->>BatchRunner: gather results
-    BatchRunner->>BatchRunner: generate reports
-    BatchRunner-->>BatchMain: BatchDiagnosisResult
-```
-
-### 3.4 异步处理流程
-
-```mermaid
-graph LR
-    subgraph "异步任务管理"
-        A[asyncio.create_task] --> B[asyncio.gather]
-        B --> C[asyncio.wait_for]
-        C --> D[asyncio.Semaphore]
-    end
-
-    subgraph "并发控制"
-        E["max_concurrent=3"] --> F["Semaphore(3)"]
-        F --> G["任务队列"]
-        G --> H["并行执行"]
-    end
-
-    subgraph "超时处理"
-        I["timeout_seconds"] --> J["asyncio.wait_for"]
-        J --> K["TimeoutError"]
-        K --> L["错误恢复"]
-    end
-```
-
-## 4. 配置管理架构
-
-### 4.1 环境变量配置流程
-
-```mermaid
-flowchart TD
-    A[应用启动] --> B[加载.env文件]
-    B --> C[读取系统环境变量]
-    C --> D[Pydantic Settings验证]
-    D --> E{配置验证}
-    E -->|成功| F[创建全局settings对象]
-    E -->|失败| G[抛出ValidationError]
-    F --> H[应用使用配置]
-    G --> I[应用启动失败]
-```
-
-#### 配置类结构
-
-```python
-class AppSettings(BaseSettings):
-    """应用配置类 - 位于 network-diagnosis/src/network_diagnosis/config.py"""
-
-    # 配置来源优先级
-    model_config = SettingsConfigDict(
-        env_file='.env',           # 1. 项目根目录的.env文件
-        env_file_encoding='utf-8',
-        case_sensitive=True,
-        extra='ignore'
-    )
-
-    # 配置项分类
-    # 应用基础配置
-    APP_NAME: str = "Network Diagnosis Tool"
-    APP_VERSION: str = "1.0.0"
-    DEBUG: bool = False
-
-    # 网络诊断配置
-    CONNECT_TIMEOUT: int = 10
-    READ_TIMEOUT: int = 30
-    MAX_REDIRECTS: int = 5
-
-    # 系统配置
-    SUDO_PASSWORD: Optional[str] = None
-    OUTPUT_DIR: str = "./network-diagnosis/output"  # 动态计算路径
-
-    # 日志配置
-    LOG_LEVEL: str = "INFO"
-    LOG_FORMAT: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        # 动态计算输出目录路径
-        self.OUTPUT_DIR = str(Path(__file__).parent.parent.parent / "output")
-```
-
-### 4.2 YAML配置文件处理机制
-
-```mermaid
-flowchart TD
-    A[YAML配置文件] --> B[yaml.safe_load]
-    B --> C[原始字典数据]
-    C --> D[Pydantic模型验证]
-    D --> E{验证结果}
-    E -->|成功| F[DiagnosisConfig对象]
-    E -->|失败| G[ValidationError]
-    F --> H[应用全局默认值]
-    H --> I[生成DiagnosisRequest列表]
-    G --> J[配置错误报告]
-```
-
-#### 配置模型层次结构
-```python
-# 配置模型层次
-DiagnosisConfig
-├── targets: List[TargetConfig]
-│   ├── domain: str
-│   ├── port: int
-│   ├── include_trace: bool
-│   ├── include_http: bool
-│   └── description: Optional[str]
-└── global_settings: GlobalSettings
-    ├── default_port: int
-    ├── max_concurrent: int
-    ├── timeout_seconds: int
-    ├── save_individual_files: bool
-    └── save_summary_report: bool
-```
-
-### 4.3 配置验证和加载过程
-
-```python
-class ConfigLoader:
-    """配置文件加载器"""
-
-    def load_config(self) -> DiagnosisConfig:
-        """配置加载流程"""
-        # 1. 文件存在性检查
-        if not self.config_file.exists():
-            raise FileNotFoundError(f"Configuration file not found: {self.config_file}")
-
-        # 2. YAML解析
-        with open(self.config_file, 'r', encoding='utf-8') as f:
-            raw_config = yaml.safe_load(f)
-
-        # 3. Pydantic验证
-        self.config = DiagnosisConfig(**raw_config)
-
-        # 4. 应用全局默认值
-        self._apply_global_defaults()
-
-        return self.config
-
-    def validate_config_file(self, config_file: str) -> bool:
-        """配置文件验证"""
-        try:
-            temp_loader = ConfigLoader(config_file)
-            temp_loader.load_config()
-            return True
-        except Exception as e:
-            logger.error(f"Configuration validation failed: {str(e)}")
-            return False
-```
-
-## 5. 数据模型架构
-
-### 5.1 Pydantic模型结构（增强版）
-
-```mermaid
-classDiagram
-    class NetworkDiagnosisResult {
-        +str domain
-        +Optional~str~ target_ip
-        +datetime timestamp
-        +Optional~DNSResolutionInfo~ dns_resolution
-        +Optional~TCPConnectionInfo~ tcp_connection
-        +Optional~TLSInfo~ tls_info
-        +Optional~HTTPResponseInfo~ http_response
-        +Optional~ICMPInfo~ icmp_info
-        +Optional~NetworkPathInfo~ network_path
-        +Optional~PublicIPInfo~ public_ip_info
-        +🆕Optional~MultiIPICMPInfo~ multi_ip_icmp
-        +🆕Optional~MultiIPNetworkPathInfo~ multi_ip_network_path
-        +float total_diagnosis_time_ms
-        +bool success
-        +List~str~ error_messages
-    }
-
-    class HTTPResponseInfo {
-        +int status_code
-        +str reason_phrase
-        +Dict headers
-        +float response_time_ms
-        +Optional~int~ content_length
-        +Optional~str~ content_type
-        +Optional~str~ server
-        +List~str~ redirects
-        +🆕Optional~OriginServerInfo~ origin_info
-        +🆕Optional~HTTPHeaderAnalysis~ header_analysis
-    }
-
-    class OriginServerInfo {
-        +Optional~str~ real_ip
-        +Optional~List[str]~ forwarded_for
-        +Optional~str~ forwarded_for_raw
-        +Optional~str~ backend_server
-        +Optional~str~ upstream_server
-        +Optional~str~ cdn_provider
-        +Optional~str~ cache_status
-        +Optional~List[str]~ possible_origin_ips
-    }
-
-    class HTTPHeaderAnalysis {
-        +Dict[str, str] security_headers
-        +Dict[str, str] performance_headers
-        +Dict[str, str] custom_headers
-        +int total_headers_count
-        +int custom_headers_count
-    }
-
-    class MultiIPICMPInfo {
-        +str target_domain
-        +List[str] tested_ips
-        +Dict[str, Optional[ICMPInfo]] icmp_results
-        +ICMPSummary summary
-        +float total_execution_time_ms
-        +bool concurrent_execution
-    }
-
-    class ICMPSummary {
-        +int total_ips
-        +int successful_ips
-        +int failed_ips
-        +float success_rate
-        +Optional~float~ avg_rtt_ms
-        +Optional~float~ min_rtt_ms
-        +Optional~float~ max_rtt_ms
-        +Optional~str~ best_performing_ip
-        +int total_packets_sent
-        +int total_packets_received
-        +float overall_packet_loss_percent
-    }
-
-    class MultiIPNetworkPathInfo {
-        +str target_domain
-        +List[str] tested_ips
-        +Dict[str, Optional[NetworkPathInfo]] path_results
-        +PathSummary summary
-        +float total_execution_time_ms
-        +bool concurrent_execution
-        +str trace_method
-    }
-
-    class PathSummary {
-        +int total_ips
-        +int successful_traces
-        +int failed_traces
-        +float success_rate
-        +Optional~float~ avg_hops
-        +Optional~int~ min_hops
-        +Optional~int~ max_hops
-        +Optional~str~ shortest_path_ip
-        +Optional~float~ avg_latency_ms
-        +Optional~float~ min_latency_ms
-        +Optional~float~ max_latency_ms
-        +Optional~str~ fastest_ip
-        +List[str] common_hops
-        +int unique_paths
-    }
-
-    class DNSResolutionInfo {
-        +str domain
-        +List~str~ ip_addresses
-        +str primary_ip
-        +float resolution_time_ms
-        +Optional~str~ dns_server
-        +bool success
-        +Optional~str~ error_message
-    }
-
-    class PublicIPInfo {
-        +str ip
-        +Optional~str~ country
-        +Optional~str~ province
-        +Optional~str~ city
-        +Optional~str~ district
-        +Optional~str~ isp
-        +Optional~str~ continent
-        +Optional~str~ zipcode
-        +Optional~str~ adcode
-        +str service_provider
-        +float query_time_ms
-    }
-
-    class TCPConnectionInfo {
-        +str host
-        +int port
-        +float connect_time_ms
-        +bool is_connected
-        +Optional~str~ error_message
-    }
-
-    class TLSInfo {
-        +str protocol_version
-        +str cipher_suite
-        +Optional~SSLCertificateInfo~ certificate
-        +int certificate_chain_length
-        +bool is_secure
-        +float handshake_time_ms
-    }
-
-    class SSLCertificateInfo {
-        +Dict subject
-        +Dict issuer
-        +int version
-        +str serial_number
-        +datetime not_before
-        +datetime not_after
-        +str signature_algorithm
-        +str public_key_algorithm
-        +Optional~int~ public_key_size
-        +str fingerprint_sha256
-        +bool is_expired
-        +int days_until_expiry
-    }
-
-    class HTTPResponseInfo {
-        +int status_code
-        +str reason_phrase
-        +Dict headers
-        +float response_time_ms
-        +Optional~int~ content_length
-        +Optional~str~ content_type
-        +Optional~str~ server
-        +List~str~ redirects
-    }
-
-    class NetworkPathInfo {
-        +str destination
-        +int hop_count
-        +List~TraceRouteHop~ hops
-        +float total_time_ms
-        +str trace_method
-    }
-
-    class TraceRouteHop {
-        +int hop_number
-        +str ip_address
-        +Optional~str~ hostname
-        +float avg_response_time_ms
-        +float packet_loss_percent
-        +Optional~str~ asn
-        +int packets_sent
-        +int packets_received
-        +float best_time_ms
-        +float worst_time_ms
-        +float std_dev_ms
-    }
-
-    class ICMPInfo {
-        +str target_host
-        +str target_ip
-        +int packets_sent
-        +int packets_received
-        +float packet_loss_percent
-        +Optional~float~ min_rtt_ms
-        +Optional~float~ max_rtt_ms
-        +Optional~float~ avg_rtt_ms
-        +Optional~float~ std_dev_rtt_ms
-        +int packet_size
-        +int timeout_ms
-        +str ping_command
-        +float execution_time_ms
-        +bool is_successful
-        +Optional~str~ error_message
-    }
-
-    NetworkDiagnosisResult --> DNSResolutionInfo
-    NetworkDiagnosisResult --> TCPConnectionInfo
-    NetworkDiagnosisResult --> TLSInfo
-    NetworkDiagnosisResult --> HTTPResponseInfo
-    NetworkDiagnosisResult --> ICMPInfo
-    NetworkDiagnosisResult --> NetworkPathInfo
-    NetworkDiagnosisResult --> PublicIPInfo
-    TLSInfo --> SSLCertificateInfo
-    NetworkPathInfo --> TraceRouteHop
-```
-
-### 5.2 JSON输出格式规范
-
-#### 单个诊断结果格式
-
-```json
-{
-  "domain": "example.com",
-  "target_ip": "93.184.216.34",
-  "timestamp": "2025-09-10T12:00:00.000000",
-
-  // URL相关信息（仅URL配置时存在）
-  "original_url": "https://api.example.com/users",
-  "url_path": "/users",
-  "url_protocol": "https",
-  "is_url_based": true,
-  "dns_resolution": {
-    "domain": "example.com",
-    "ip_addresses": ["93.184.216.34", "2606:2800:220:1:248:1893:25c8:1946"],
-    "primary_ip": "93.184.216.34",
-    "resolution_time_ms": 45.23,
-    "dns_server": "8.8.8.8",
-    "success": true,
-    "error_message": null
-  },
-  "tcp_connection": {
-    "host": "example.com",
-    "port": 443,
-    "local_address": "192.168.1.100",
-    "local_port": 54321,
-    "remote_address": "93.184.216.34",
-    "remote_port": 443,
-    "connect_time_ms": 45.23,
-    "is_connected": true,
-    "socket_family": "AF_INET",
-    "socket_type": "SOCK_STREAM",
-    "error_message": null
-  },
-  "tls_info": {
-    "protocol_version": "TLSv1.3",
-    "cipher_suite": "TLS_AES_256_GCM_SHA384",
-    "certificate": {
-      "subject": {"CN": "example.com"},
-      "issuer": {"CN": "DigiCert TLS RSA SHA256 2020 CA1"},
-      "version": 3,
-      "serial_number": "12345678901234567890",
-      "not_before": "2024-01-01T00:00:00",
-      "not_after": "2025-01-01T00:00:00",
-      "signature_algorithm": "sha256WithRSAEncryption",
-      "public_key_algorithm": "RSA",
-      "public_key_size": 2048,
-      "fingerprint_sha256": "abc123...",
-      "is_expired": false,
-      "days_until_expiry": 120
-    },
-    "certificate_chain_length": 3,
-    "is_secure": true,
-    "handshake_time_ms": 156.78
-  },
-  "http_response": {
-    "status_code": 200,
-    "reason_phrase": "OK",
-    "headers": {
-      "content-type": "text/html; charset=UTF-8",
-      "server": "nginx/1.18.0"
-    },
-    "response_time_ms": 234.56,
-    "content_length": 1024,
-    "content_type": "text/html",
-    "server": "nginx/1.18.0",
-    "redirect_count": 0,
-    "final_url": "https://example.com/"
-  },
-  "network_path": {
-    "target_host": "example.com",
-    "target_ip": "93.184.216.34",
-    "trace_method": "mtr",
-    "hops": [
-      {
-        "hop_number": 1,
-        "ip_address": "192.168.1.1",
-        "hostname": "gateway.local",
-        "avg_response_time_ms": 1.23,
-        "packet_loss_percent": 0.0,
-        "asn": "AS12345",
-        "packets_sent": 5,
-        "packets_received": 5,
-        "best_time_ms": 1.1,
-        "worst_time_ms": 1.4,
-        "std_dev_ms": 0.1
-      }
-    ],
-    "total_hops": 8,
-    "avg_latency_ms": 45.67,
-    "packet_loss_percent": 0.0
-  },
-  "icmp_info": {
-    "target_host": "example.com",
-    "target_ip": "93.184.216.34",
-    "packets_sent": 4,
-    "packets_received": 4,
-    "packet_loss_percent": 0.0,
-    "min_rtt_ms": 12.3,
-    "max_rtt_ms": 15.8,
-    "avg_rtt_ms": 14.2,
-    "std_dev_rtt_ms": 1.2,
-    "packet_size": 32,
-    "timeout_ms": 1000,
-    "ping_command": "ping -c 4 -s 32 -W 1 -i 0.2 example.com",
-    "execution_time_ms": 800.5,
-    "is_successful": true,
-    "error_message": null
-  },
-  "public_ip_info": {
-    "ip": "203.0.113.1",
-    "country": "中国",
-    "province": "北京市",
-    "city": "北京市",
-    "district": "朝阳区",
-    "isp": "中国电信",
-    "continent": "亚洲",
-    "zipcode": "100000",
-    "adcode": "110105",
-    "service_provider": "百度智能云",
-    "query_time_ms": 123.45
-  },
-  "total_diagnosis_time_ms": 567.89,
-  "success": true,
-  "error_messages": []
-}
-```
-
-#### 批量诊断报告格式
-```json
-{
-  "summary": {
-    "execution_summary": {
-      "total_targets": 5,
-      "successful": 4,
-      "failed": 1,
-      "success_rate": 80.0,
-      "total_execution_time_ms": 2345.67,
-      "start_time": "2025-09-10T12:00:00.000000",
-      "end_time": "2025-09-10T12:00:02.345670",
-      "config_file": "targets.yaml"
-    },
-    "performance_statistics": {
-      "average_diagnosis_time_ms": 468.13,
-      "average_tcp_connect_time_ms": 45.23,
-      "fastest_diagnosis_ms": 234.56,
-      "slowest_diagnosis_ms": 789.01
-    },
-    "security_statistics": {
-      "tls_enabled_count": 3,
-      "tls_protocols": {
-        "TLSv1.3": 2,
-        "TLSv1.2": 1
-      },
-      "secure_connections_rate": 75.0
-    },
-    "http_statistics": {
-      "status_codes": {
-        "200": 3,
-        "403": 1
-      },
-      "http_enabled_count": 4
-    }
-  },
-  "individual_results": [
-    // 每个目标的完整诊断结果
-  ]
-}
-```
-
-### 5.3 数据转换和验证流程
-
-```mermaid
-flowchart TD
-    A[原始网络数据] --> B[服务层处理]
-    B --> C[Pydantic模型验证]
-    C --> D{验证结果}
-    D -->|成功| E[类型安全的对象]
-    D -->|失败| F[ValidationError]
-    E --> G[JSON序列化]
-    G --> H[文件保存]
-    F --> I[错误日志记录]
-
-    subgraph "验证规则"
-        J[类型检查]
-        K[值范围验证]
-        L[格式验证]
-        M[必填字段检查]
-    end
-
-    C --> J
-    C --> K
-    C --> L
-    C --> M
-```
-
-#### 数据验证示例
-```python
-class TCPConnectionInfo(BaseModel):
-    """TCP连接信息验证"""
-    host: str
-    port: int = Field(..., ge=1, le=65535)  # 端口范围验证
-    connect_time_ms: float = Field(..., ge=0)  # 时间非负验证
-    is_connected: bool
-    error_message: Optional[str] = None
-
-    @validator('host')
-    def validate_host(cls, v):
-        """主机名验证"""
-        if not v or len(v.strip()) == 0:
-            raise ValueError('Host cannot be empty')
-        return v.strip()
-
-class SSLCertificateInfo(BaseModel):
-    """SSL证书信息验证"""
-    not_before: datetime
-    not_after: datetime
-    days_until_expiry: int
-
-    @validator('days_until_expiry', pre=True, always=True)
-    def calculate_days_until_expiry(cls, v, values):
-        """自动计算证书到期天数"""
-        if 'not_after' in values:
-            delta = values['not_after'] - datetime.now(timezone.utc)
-            return delta.days
-        return v
-```
-
-## 6. 批量处理架构
-
-### 6.1 并发执行机制
-
-```mermaid
-graph TD
-    subgraph "并发控制层"
-        A[BatchDiagnosisRunner] --> B[asyncio.Semaphore]
-        B --> C[max_concurrent=3]
-    end
-
-    subgraph "任务队列"
-        D[Target 1] --> E[Task 1]
-        F[Target 2] --> G[Task 2]
-        H[Target 3] --> I[Task 3]
-        J[Target 4] --> K[Task 4]
-        L[Target 5] --> M[Task 5]
-    end
-
-    subgraph "执行池"
-        N[Worker 1]
-        O[Worker 2]
-        P[Worker 3]
-    end
-
-    C --> N
-    C --> O
-    C --> P
-
-    E --> N
-    G --> O
-    I --> P
-    K --> N
-    M --> O
-```
-
-#### 并发控制实现
-```python
-class BatchDiagnosisRunner:
-    """批量诊断运行器"""
-
-    def __init__(self, config_file: str):
-        self.config_loader = ConfigLoader(config_file)
-        self.coordinator = DiagnosisCoordinator()
-
-    async def run_batch_diagnosis(self) -> BatchDiagnosisResult:
-        """执行批量诊断"""
-        # 1. 加载配置
-        config = self.config_loader.load_config()
-
-        # 2. 创建信号量控制并发
-        semaphore = asyncio.Semaphore(config.global_settings.max_concurrent)
-
-        # 3. 创建诊断任务
-        tasks = []
-        for i, request in enumerate(self.diagnosis_requests):
-            task = asyncio.create_task(
-                self._diagnose_with_semaphore(semaphore, request, i + 1)
-            )
-            tasks.append(task)
-
-        # 4. 并发执行所有任务
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-
-        # 5. 处理结果和异常
-        return self._process_batch_results(results)
-
-    async def _diagnose_with_semaphore(
-        self,
-        semaphore: asyncio.Semaphore,
-        request: DiagnosisRequest,
-        index: int
-    ) -> NetworkDiagnosisResult:
-        """带信号量控制的诊断执行"""
-        async with semaphore:  # 获取信号量
-            try:
-                logger.info(f"[{index}/{len(self.diagnosis_requests)}] Starting diagnosis for {request.domain}:{request.port}")
-
-                # 执行诊断（带超时控制）
-                result = await asyncio.wait_for(
-                    self.coordinator.diagnose(request),
-                    timeout=self.global_settings.timeout_seconds
-                )
-
-                logger.info(f"[{index}/{len(self.diagnosis_requests)}] {request.domain}:{request.port} - SUCCESS ({result.total_time_ms:.2f}ms)")
-                return result
-
-            except asyncio.TimeoutError:
-                logger.error(f"[{index}/{len(self.diagnosis_requests)}] {request.domain}:{request.port} - TIMEOUT")
-                return self._create_timeout_result(request)
-            except Exception as e:
-                logger.error(f"[{index}/{len(self.diagnosis_requests)}] {request.domain}:{request.port} - ERROR: {str(e)}")
-                return self._create_error_result(request, str(e))
-```
-
-### 6.2 任务调度和管理
-
-```mermaid
-sequenceDiagram
-    participant BR as BatchRunner
-    participant S as Semaphore
-    participant TQ as TaskQueue
-    participant W1 as Worker1
-    participant W2 as Worker2
-    participant W3 as Worker3
-
-    BR->>S: 创建Semaphore(3)
-    BR->>TQ: 创建任务队列
-
-    loop 创建任务
-        BR->>TQ: create_task(diagnose)
-    end
-
-    par 并发执行
-        TQ->>W1: 分配任务1
-        TQ->>W2: 分配任务2
-        TQ->>W3: 分配任务3
-    and
-        W1->>S: acquire()
-        W1->>W1: 执行诊断
-        W1->>S: release()
-    and
-        W2->>S: acquire()
-        W2->>W2: 执行诊断
-        W2->>S: release()
-    and
-        W3->>S: acquire()
-        W3->>W3: 执行诊断
-        W3->>S: release()
-    end
-
-    BR->>BR: gather所有结果
-    BR->>BR: 生成汇总报告
-```
-
-### 6.3 错误处理和恢复策略
-
-#### 错误分类和处理
-```python
-class BatchDiagnosisRunner:
-    """错误处理策略"""
-
-    def _process_batch_results(self, results: List) -> BatchDiagnosisResult:
-        """处理批量结果，包含错误恢复"""
-        successful_results = []
-        failed_results = []
-
-        for i, result in enumerate(results):
-            if isinstance(result, Exception):
-                # 异常结果处理
-                failed_result = self._handle_exception(result, i)
-                failed_results.append(failed_result)
-            elif isinstance(result, NetworkDiagnosisResult):
-                if result.success:
-                    successful_results.append(result)
-                else:
-                    failed_results.append(result)
-            else:
-                # 未知结果类型
-                logger.error(f"Unknown result type: {type(result)}")
-                failed_results.append(self._create_unknown_error_result(i))
-
-        return self._create_batch_result(successful_results, failed_results)
-
-    def _handle_exception(self, exception: Exception, index: int) -> NetworkDiagnosisResult:
-        """异常处理策略"""
-        if isinstance(exception, asyncio.TimeoutError):
-            return self._create_timeout_result(self.diagnosis_requests[index])
-        elif isinstance(exception, ConnectionError):
-            return self._create_connection_error_result(self.diagnosis_requests[index], str(exception))
-        elif isinstance(exception, ValidationError):
-            return self._create_validation_error_result(self.diagnosis_requests[index], str(exception))
-        else:
-            return self._create_generic_error_result(self.diagnosis_requests[index], str(exception))
-```
-
-#### 错误恢复机制
-```mermaid
-flowchart TD
-    A[任务执行] --> B{执行结果}
-    B -->|成功| C[记录成功结果]
-    B -->|超时| D[创建超时结果]
-    B -->|连接错误| E[创建连接错误结果]
-    B -->|验证错误| F[创建验证错误结果]
-    B -->|其他异常| G[创建通用错误结果]
-
-    D --> H[继续执行其他任务]
-    E --> H
-    F --> H
-    G --> H
-    C --> H
-
-    H --> I[收集所有结果]
-    I --> J[生成汇总报告]
-    J --> K[保存错误日志]
-```
-
-### 6.4 并发性能分析
-
-#### 支持的并发数量
-```python
-# 配置参数
-class GlobalSettings(BaseModel):
-    max_concurrent: int = Field(default=3, ge=1, le=10)  # 最大并发数：1-10
-    timeout_seconds: int = Field(default=60, ge=10, le=300)  # 超时时间：10-300秒
-```
-
-#### 并发性能特征
-| 并发数 | 适用场景 | 性能特点 | 资源消耗 |
-|--------|----------|----------|----------|
-| 1 | 调试、慢速网络 | 串行执行，最稳定 | 最低 |
-| 2-3 | 一般网络诊断 | 平衡性能和稳定性 | 中等 |
-| 4-6 | 快速批量诊断 | 高性能，适合稳定网络 | 较高 |
-| 7-10 | 大规模监控 | 最高性能，需要优质网络 | 最高 |
-
-#### 并发限制因素
-```python
-# 系统资源限制
-- 网络带宽：每个连接消耗一定带宽
-- 文件描述符：每个socket连接占用一个fd
-- 内存使用：每个异步任务占用内存
-- CPU使用：TLS握手和证书解析消耗CPU
-
-# 目标服务器限制
-- 连接数限制：目标服务器可能限制并发连接
-- 速率限制：防止被识别为攻击行为
-- 防火墙规则：可能触发DDoS保护机制
-
-# 推荐配置
-max_concurrent = min(
-    10,  # 系统最大支持
-    target_count // 2,  # 目标数量的一半
-    available_bandwidth // estimated_per_connection_bandwidth
-)
-```
-
-#### 性能优化建议
-```python
-# 1. 动态调整并发数
-def calculate_optimal_concurrency(target_count: int, network_quality: str) -> int:
-    base_concurrent = {
-        'poor': 1,
-        'fair': 2,
-        'good': 3,
-        'excellent': 5
-    }.get(network_quality, 3)
-
-    return min(base_concurrent, max(1, target_count // 3))
-
-# 2. 分批处理大量目标
-async def process_large_batch(targets: List[str], batch_size: int = 50):
-    for i in range(0, len(targets), batch_size):
-        batch = targets[i:i + batch_size]
-        await process_batch(batch)
-        await asyncio.sleep(1)  # 批次间休息
-
-# 3. 智能超时设置
-def calculate_timeout(target_type: str) -> int:
-    timeouts = {
-        'web_server': 30,
-        'api_endpoint': 45,
-        'dns_server': 60,
-        'internal_service': 20
-    }
-    return timeouts.get(target_type, 60)
-```
-
-## 7. 总结
-
-### 7.1 架构优势
-
-1. **模块化设计**：清晰的分层架构，职责分离
-2. **类型安全**：Pydantic模型提供运行时类型验证
-3. **异步高性能**：基于asyncio的并发处理
-4. **配置外部化**：遵循十二要素应用原则
-5. **错误恢复**：完善的异常处理和错误恢复机制
-6. **可扩展性**：易于添加新的诊断功能和输出格式
-7. **安全性**：sudoers配置避免密码硬编码
-8. **多服务容错**：公网IP信息收集支持多服务商容错
-9. **灵活配置**：支持URL和域名+端口两种配置方式
-10. **增强追踪**：mtr提供ASN信息和详细网络统计
-11. **🆕 智能多IP处理**：自动检测并处理多IP场景
-12. **🆕 HTTP头深度解析**：提供源站信息和CDN检测
-13. **🆕 并行性能测试**：多IP并行测试提高效率
-14. **🆕 向后兼容性**：新功能不影响现有使用方式
-
-### 7.2 技术栈总结
-
-| 层次 | 技术栈 | 作用 |
-|------|--------|------|
-| 应用层 | argparse, asyncio | 命令行解析、异步执行 |
-| 业务层 | Pydantic v2, PyYAML | 数据验证、配置管理 |
-| 服务层 | socket, ssl, httpx, subprocess | 网络诊断实现 |
-| 数据层 | JSON, cryptography | 数据序列化、证书解析 |
-| 基础设施 | logging, pathlib | 日志记录、文件操作 |
-| 网络工具 | mtr, traceroute | 网络路径追踪 |
-| 包管理 | uv | 现代Python包管理器 |
-
-### 7.3 当前实现特性
-
-#### 核心功能特性
-- **DNS解析分析**：详细的域名解析信息和性能统计
-- **TCP连接测试**：包含本地/远程地址、Socket类型等详细信息
-- **TLS/SSL分析**：完整的证书链分析和安全评估
-- **HTTP响应检查**：支持重定向跟踪和详细响应分析
-- **🆕 HTTP头增强解析**：源站信息提取、CDN检测、安全头分析
-- **ICMP探测**：跨平台ping测试，RTT统计和丢包率分析
-- **🆕 ICMP多IP拨测**：并行测试所有DNS解析的IP，性能对比分析
-- **网络路径追踪**：mtr优先，包含ASN信息和丢包统计
-- **🆕 MTR多IP拨测**：并行路径追踪，共同跳点分析，路径对比
-- **公网IP信息**：多服务商容错的地理位置信息收集
-
-#### 配置和控制特性
-- **TLS开关控制**：可配置是否进行TLS检测
-- **ICMP开关控制**：可配置是否进行ICMP探测
-- **URL检测支持**：直接使用URL进行诊断
-- **智能路径解析**：配置文件路径自动解析
-- **动态输出目录**：基于配置文件名创建子目录
-- **统一日志系统**：双输出（控制台+文件）
-
-#### 运维和部署特性
-- **sudoers集成**：无密码执行mtr命令
-- **容器化支持**：Docker和Kubernetes部署
-- **环境变量配置**：完整的十二要素应用支持
-- **并发控制**：可配置的并发数和超时控制
-- **错误恢复**：完善的异常处理和重试机制
-
-#### 🆕 功能增强特性
-
-##### HTTP头信息增强解析
-- **源站信息提取**：自动识别X-Real-IP、X-Forwarded-For等头信息
-- **CDN检测**：智能识别Cloudflare、AWS CloudFront、Azure CDN等
-- **安全头分析**：X-Frame-Options、CSP、HSTS等安全头检测
-- **性能头分析**：Cache-Control、ETag、压缩等性能相关头
-- **IP地址提取**：从多种HTTP头中提取可能的源站IP
-
-##### ICMP多IP拨测
-- **并行测试策略**：对DNS解析的所有IP进行并行ping测试
-- **性能对比分析**：自动识别最佳性能的IP地址
-- **统计汇总**：成功率、RTT分布、丢包率统计
-- **智能切换**：单IP使用传统逻辑，多IP自动启用并行测试
-- **向后兼容**：保持现有单IP测试接口不变
-
-##### MTR多IP拨测
-- **并行路径追踪**：对所有IP地址进行并行网络路径追踪
-- **路径对比分析**：识别共同跳点和路径差异
-- **性能统计**：最短路径、最快路径、平均跳数等指标
-- **网络拓扑分析**：路径多样性和网络基础设施识别
-- **质量评估**：基于多路径数据的网络质量评估
-
-##### 智能逻辑切换
-- **自动检测**：根据DNS解析结果自动选择测试策略
-- **数据兼容**：新功能作为可选字段，不影响现有数据结构
-- **性能优化**：并行执行提高多IP场景的测试效率
-- **错误隔离**：单个IP测试失败不影响其他IP的测试
-
-### 7.4 扩展方向
-
-1. **Web界面**：基于FastAPI的REST API和Web UI
-2. **数据库存储**：历史数据存储和趋势分析
-3. **监控告警**：阈值监控和实时告警
-4. **分布式执行**：多节点分布式诊断
-5. **插件系统**：可插拔的诊断模块
-6. **机器学习**：网络性能预测和异常检测
-7. **多协议支持**：UDP等其他协议诊断
-8. **云原生集成**：Prometheus指标、Grafana仪表板
+**🎉 本架构文档描述了网络诊断工具的完整企业级架构，包括智能监控、自动恢复和高可用特性，为长期稳定运行提供了坚实的技术基础。**
