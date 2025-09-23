@@ -1,0 +1,5 @@
+{"timestamp": "2025-09-23T10:48:53.874178", "level": "critical", "metric_name": "test_resolution", "current_value": 90.0, "threshold_value": 80.0, "message": "test_resolution greater threshold: 90.0 vs 80.0", "resolved": false}
+{"timestamp": "2025-09-23T10:48:53.874276", "level": "info", "metric_name": "test_resolution", "current_value": 30.0, "threshold_value": 80.0, "message": "test_resolution recovered: 30.0", "resolved": true}
+{"timestamp": "2025-09-23T10:49:16.639640", "level": "critical", "metric_name": "test_resolution", "current_value": 90.0, "threshold_value": 80.0, "message": "test_resolution greater threshold: 90.0 vs 80.0", "resolved": false}
+{"timestamp": "2025-09-23T10:49:16.639735", "level": "info", "metric_name": "test_resolution", "current_value": 30.0, "threshold_value": 80.0, "message": "test_resolution recovered: 30.0", "resolved": true}
+{"timestamp": "2025-09-23T10:52:40.552082", "level": "warning", "metric_name": "file_handlers", "current_value": 2, "threshold_value": 1.0, "message": "file_handlers greater threshold: 2 vs 1.0", "resolved": false}
